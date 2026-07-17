@@ -141,6 +141,10 @@
 
     <!-- Scanner Feed Card -->
     <div class="main-card card-border-top">
+      <button id="switch-camera-btn" class="btn-secondary" style="width: 100%; margin-bottom: 16px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"/><path d="M9 22V12h6v10M2 10.6L12 2l10 8.6"/></svg>
+        Switch Camera (Front/Back)
+      </button>
       <div id="scanner-container"></div>
     </div>
 
@@ -199,7 +203,8 @@
     const db = getFirestore(app);
     const auth = getAuth(app);
 
-    let html5QrcodeScanner = null;
+    let html5Qrcode = null;
+    let currentFacingMode = "environment"; // "environment" = back camera, "user" = front camera
     let currentBranch = ""; 
     let cart = {}; // Object structured by Product ID to combine matching items
     let scannedQRCodes = []; // Track unique individual pieces inside current session
@@ -262,24 +267,40 @@
     
     document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
 
-    // Initialize QR Code Scanner
+    // Initialize Core QR Code Scanner Engine
     function initScanner() {
-      if (!html5QrcodeScanner) {
-        html5QrcodeScanner = new Html5QrcodeScanner("scanner-container", { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          rememberLastUsedCamera: true,
-          // Restrict scanner to only use the device camera, removing the file upload option
-          supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
-        });
-        html5QrcodeScanner.render(onScanSuccess);
+      if (!html5Qrcode) {
+        // Use the core Html5Qrcode class instead of the Scanner wrapper
+        html5Qrcode = new Html5Qrcode("scanner-container");
       }
+      startCamera(currentFacingMode);
+    }
+
+    // Start the camera feed with specific front/back setting
+    function startCamera(facingMode) {
+      const config = { 
+        fps: 10, 
+        qrbox: { width: 250, height: 250 } 
+      };
+
+      html5Qrcode.start(
+        { facingMode: facingMode }, // Tell it which camera to use
+        config,
+        onScanSuccess,
+        (errorMessage) => { 
+          // Ignore frequent scan errors (the library throws these constantly when no QR is in view)
+        }
+      ).catch((err) => {
+        console.error("Camera initialization error:", err);
+        displayToast("Camera access denied or unavailable.", "error");
+      });
     }
 
     function stopScanner() {
-      if (html5QrcodeScanner) {
-        html5QrcodeScanner.clear().catch(err => console.error(err));
-        html5QrcodeScanner = null;
+      if (html5Qrcode && html5Qrcode.isScanning) {
+        html5Qrcode.stop().then(() => {
+          html5Qrcode.clear();
+        }).catch(err => console.error(err));
       }
     }
 
@@ -441,6 +462,24 @@
         console.error(err);
         displayToast("Transactional Error. Please check connectivity.", "error");
         checkoutBtn.disabled = false;
+      }
+    });
+
+    // Custom Camera Switching Logic
+    document.getElementById('switch-camera-btn').addEventListener('click', () => {
+      // Toggle between front and back
+      currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+      
+      if (html5Qrcode && html5Qrcode.isScanning) {
+        // If it's already running, stop the stream first, then restart with new camera
+        html5Qrcode.stop().then(() => {
+          startCamera(currentFacingMode);
+        }).catch(err => {
+          console.error("Error stopping camera to switch:", err);
+        });
+      } else {
+        // If it's not scanning (e.g., just booted up), just start it
+        startCamera(currentFacingMode);
       }
     });
 
