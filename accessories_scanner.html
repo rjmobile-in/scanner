@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Accessories POS | Secure Terminal</title>
+  
+  <script>
+    if (localStorage.getItem('rj_theme') === 'light') {
+      document.documentElement.classList.add('light-theme');
+    }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  
+  <!-- HTML5 QR Code library for scanning via device camera -->
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-base: #09090b; --card-bg: #18181b; --card-bg-alpha: rgba(24, 24, 27, 0.75);
+      --card-border: #27272a; --primary: #3b82f6; --primary-hover: #60a5fa;
+      --primary-alpha: rgba(59, 130, 246, 0.15); --text-main: #f4f4f5; --text-soft: #a1a1aa;
+      --success: #10b981; --success-alpha: rgba(16, 185, 129, 0.15); --danger: #ef4444;
+      --danger-alpha: rgba(239, 68, 68, 0.15); --input-bg: #09090b;
+      --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.4); --shadow-glow: 0 10px 30px rgba(59, 130, 246, 0.2);
+    }
+    html.light-theme {
+      --bg-base: #f8fafc; --card-bg: #ffffff; --card-bg-alpha: rgba(255, 255, 255, 0.85);
+      --card-border: #e2e8f0; --primary: #4f46e5; --primary-hover: #6366f1;
+      --primary-alpha: rgba(79, 70, 229, 0.1); --text-main: #0f172a; --text-soft: #64748b;
+      --input-bg: #f1f5f9; --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.05);
+    }
+
+    body { font-family: 'Inter', sans-serif; background: var(--bg-base); color: var(--text-main); font-size: 15px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px 16px; transition: background-color 0.4s ease; overflow-x: hidden; }
+    .brand-title, .btn-action { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .glass-effect { background: var(--card-bg-alpha); backdrop-filter: blur(16px); border: 1px solid var(--card-border); }
+
+    #global-loader { position: fixed; inset: 0; background: var(--bg-base); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; color: var(--text-soft); font-weight: 500; }
+    .spinner { width: 48px; height: 48px; border: 4px solid var(--card-border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s infinite; margin-bottom: 20px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #login-screen { display: none; background: var(--card-bg); padding: 48px 40px; border-radius: 24px; box-shadow: var(--shadow-soft); text-align: center; width: 100%; max-width: 420px; margin-top: 12vh; border: 1px solid var(--card-border); }
+    #login-screen h2 { font-weight: 800; font-size: 28px; margin-bottom: 8px; }
+    #login-screen p { color: var(--text-soft); margin-bottom: 32px; }
+    .input-field { width: 100%; padding: 16px; border-radius: 14px; border: 1px solid var(--card-border); background: var(--input-bg); color: var(--text-main); margin-bottom: 16px; outline: none; font-size: 16px; font-weight: 600; cursor: pointer;}
+    .input-field:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-alpha); background: var(--card-bg); }
+    .checkbox-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 24px; font-size: 14px; color: var(--text-soft); cursor: pointer; }
+    .checkbox-row input { accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; }
+    #login-btn { width: 100%; padding: 16px; border-radius: 14px; border: none; background: var(--primary); color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+    #login-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-glow); }
+    #error-msg { color: var(--danger); font-size: 14px; margin-top: 16px; display: none; background: var(--danger-alpha); padding: 10px; border-radius: 10px; }
+    .password-wrapper { position: relative; width: 100%; margin-bottom: 16px; }
+    .password-wrapper .input-field { margin-bottom: 0; padding-right: 48px; }
+    .toggle-password { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-soft); cursor: pointer; display: flex; transition: color 0.2s; }
+    .toggle-password:hover { color: var(--primary); }
+
+    #dashboard { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 650px; }
+    .header { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 16px; padding: 16px 24px; border-radius: 20px; box-shadow: var(--shadow-soft); }
+    .brand-area { display: flex; align-items: center; gap: 14px; }
+    .brand-title { font-size: 20px; font-weight: 800; }
+    .brand-tag { font-size: 12px; color: var(--primary); font-weight: 700; text-transform: uppercase; }
+    .header-controls { display: flex; gap: 12px; align-items: center; }
+    #theme-toggle { background: var(--input-bg); border: 1px solid var(--card-border); color: var(--text-soft); cursor: pointer; padding: 10px; border-radius: 12px; }
+    .btn-secondary { background: transparent; border: 1px solid var(--card-border); color: var(--text-main); padding: 8px 16px; border-radius: 12px; cursor: pointer; font-weight: 600; }
+
+    .main-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 24px; padding: 24px; width: 100%; position: relative; overflow: hidden; margin-bottom: 24px; }
+    .card-border-top::after { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, var(--primary), #3b82f6); }
+    
+    #scanner-container { background: #000; border-radius: 16px; overflow: hidden; width: 100%; min-height: 280px; margin-bottom: 20px; border: 1px solid var(--card-border); }
+    
+    /* Flips the video feed horizontally for a mirror effect */
+    #scanner-container video { transform: scaleX(-1); }
+    
+    .cart-section { width: 100%; margin-top: 10px; }
+    .cart-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 12px; display: flex; justify-content: space-between; }
+    .cart-table { width: 100%; border-collapse: collapse; text-align: left; margin-bottom: 20px; }
+    .cart-table th, .cart-table td { padding: 12px; border-bottom: 1px solid var(--card-border); }
+    .cart-table th { color: var(--text-soft); font-size: 13px; text-transform: uppercase; font-weight: 700; }
+    .cart-table td { font-weight: 500; }
+    .total-row { font-size: 18px; font-weight: 800; display: flex; justify-content: space-between; padding: 16px 12px; background: var(--input-bg); border-radius: 12px; margin-bottom: 20px; }
+
+    .btn-action { width: 100%; padding: 16px; border-radius: 14px; border: none; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-in { background: var(--success); box-shadow: 0 4px 12px var(--success-alpha); }
+    .btn-action:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+    .btn-action:not(:disabled):hover { filter: brightness(1.1); transform: translateY(-2px); }
+
+    #toast { visibility: hidden; min-width: 300px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 24px; position: fixed; z-index: 10000; bottom: 40px; left: 50%; transform: translate(-50%, 20px); font-size: 15px; font-weight: 600; color: var(--text-main); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.3s, transform 0.3s, visibility 0.3s; }
+    #toast.show { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
+  </style>
+</head>
+<body>
+
+  <div id="global-loader" class="glass-effect"><div class="spinner"></div><p>Connecting Secure Session...</p></div>
+  <div id="toast" class="glass-effect"><div id="toast-icon"></div><div id="toast-msg"></div></div>
+
+  <!-- Login Screen -->
+  <div id="login-screen">
+    <h2>Accessories Terminal</h2>
+    <p>Sign in to unlock your branch scanner.</p>
+    <input type="email" id="email-input" class="input-field" placeholder="branch@yourdomain.com" />
+    <div class="password-wrapper">
+      <input type="password" id="password-input" class="input-field" placeholder="Enter terminal password" />
+      <button id="toggle-password-btn" class="toggle-password" type="button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      </button>
+    </div>
+    <label class="checkbox-row"><input type="checkbox" id="remember-me" checked> Keep terminal signed in</label>
+    <button id="login-btn">Secure Login</button>
+    <div id="error-msg">Authentication failed.</div>
+  </div>
+
+  <!-- Main Terminal Application -->
+  <div id="dashboard">
+    <div class="header glass-effect">
+      <div class="brand-area">
+        <div>
+          <div class="brand-title">Terminal POS</div>
+          <div class="brand-tag" id="detected-branch-display">Identifying Location...</div>
+        </div>
+      </div>
+      <div class="header-controls">
+        <button id="theme-toggle"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></button>
+        <button id="logout-btn" class="btn-secondary">Log Out</button>
+      </div>
+    </div>
+
+    <!-- Active Cashier Select -->
+    <div class="main-card" style="padding: 16px 24px; margin-bottom: 16px;">
+      <label style="font-size: 12px; font-weight: 700; color: var(--text-soft); text-transform: uppercase;">Active Cashier</label>
+      <select id="staff-select" class="input-field" style="margin-bottom: 0; margin-top: 8px;">
+        <option value="" disabled selected>Tap to select your name...</option>
+        <option value="Name 1">Name 1</option>
+        <option value="Name 2">Name 2</option>
+        <option value="Name 3">Name 3</option>
+      </select>
+    </div>
+
+    <!-- Scanner Feed Card -->
+    <div class="main-card card-border-top">
+      <div id="scanner-container"></div>
+    </div>
+
+    <!-- Active Cart Card -->
+    <div class="main-card">
+      <div class="cart-section">
+        <div class="cart-title">
+          <span>Scanned Items</span>
+        </div>
+        <table class="cart-table">
+          <thead>
+            <tr>
+              <th>Item Name</th>
+              <th>Price</th>
+              <th>Qty</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="cart-rows">
+            <tr>
+              <td colspan="4" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <div class="total-row">
+          <span>Bill Total:</span>
+          <span id="bill-total">₹0.00</span>
+        </div>
+
+        <button id="btn-generate-bill" class="btn-action btn-in" disabled>
+          Generate Bill & Checkout
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Modern Firebase Modular App SDK initialization
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-app.js";
+    import { getFirestore, doc, getDoc, collection, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-auth.js";
+
+    // Linked to your specific backend database app config
+    const firebaseConfig = {
+      apiKey: "AIzaSyB-tHAIqKX27wR6alL4GQI-FGu96cHE4pY",
+      authDomain: "accessories-690d0.firebaseapp.com",
+      projectId: "accessories-690d0",
+      storageBucket: "accessories-690d0.firebasestorage.app",
+      messagingSenderId: "675868074015",
+      appId: "1:675868074015:web:30676e4e7dd7d9daa5b52a",
+      measurementId: "G-MTMFMC8B0L"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    let html5QrcodeScanner = null;
+    let currentBranch = ""; 
+    let cart = {}; // Object structured by Product ID to combine matching items
+    let scannedQRCodes = []; // Track unique individual pieces inside current session
+    let isProcessingScan = false;
+
+    function displayToast(msg, statusType = "success") {
+      const toast = document.getElementById('toast');
+      const icon = document.getElementById('toast-icon');
+      document.getElementById('toast-msg').innerText = msg;
+      
+      if (statusType === "success") icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5"><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
+      else if (statusType === "error") icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`;
+      else icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
+      
+      toast.className = "glass-effect show";
+      if (toast.timeout) clearTimeout(toast.timeout);
+      toast.timeout = setTimeout(() => { toast.className = "glass-effect"; }, 4000);
+    }
+
+    // Listens for authentication changes & manages automated branch configuration routing
+    onAuthStateChanged(auth, (user) => {
+      document.getElementById('global-loader').style.display = 'none';
+      if (user) {
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('dashboard').style.display = 'flex';
+        
+        const email = user.email.toLowerCase();
+        // Custom branch routing verification based on configuration logic template 
+        if (email.includes('murlipura1')) currentBranch = "Murlipura, 1 Number";
+        else if (email.includes('vki17')) currentBranch = "VKI, 17 Number";
+        else if (email.includes('lohamandi')) currentBranch = "VKI, Lohamandi";
+        else if (email.includes('shastri')) currentBranch = "Shastri Nagar";
+        else if (email.includes('murlipura6')) currentBranch = "Murlipura, 6 Number";
+        else currentBranch = "Central / Unassigned Branch";
+
+        document.getElementById('detected-branch-display').innerText = currentBranch;
+        initScanner();
+      } else {
+        document.getElementById('login-screen').style.display = 'block';
+        document.getElementById('dashboard').style.display = 'none';
+        stopScanner();
+        currentBranch = "";
+      }
+    });
+
+    // Authentication Submission handling
+    document.getElementById('password-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('login-btn').click(); });
+    document.getElementById('login-btn').addEventListener('click', async () => {
+      const e = document.getElementById('email-input').value, p = document.getElementById('password-input').value, r = document.getElementById('remember-me').checked, msg = document.getElementById('error-msg');
+      try { 
+        msg.style.display = 'none'; 
+        await setPersistence(auth, r ? browserLocalPersistence : browserSessionPersistence); 
+        await signInWithEmailAndPassword(auth, e, p); 
+      } 
+      catch (err) { 
+        msg.style.display = 'block'; 
+        msg.innerText = err.message; 
+      }
+    });
+    
+    document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
+
+    // Initialize QR Code Scanner
+    function initScanner() {
+      if (!html5QrcodeScanner) {
+        html5QrcodeScanner = new Html5QrcodeScanner("scanner-container", { 
+          fps: 10, 
+          qrbox: { width: 250, height: 250 },
+          rememberLastUsedCamera: true
+        });
+        html5QrcodeScanner.render(onScanSuccess);
+      }
+    }
+
+    function stopScanner() {
+      if (html5QrcodeScanner) {
+        html5QrcodeScanner.clear().catch(err => console.error(err));
+        html5QrcodeScanner = null;
+      }
+    }
+
+    // Triggers when barcode library successfully captures and decodes a QR code
+    async function onScanSuccess(decodedText) {
+      if (isProcessingScan) return;
+      
+      // Stop duplicates scanning sequentially in a rapid loop
+      if (scannedQRCodes.includes(decodedText)) {
+        displayToast("Piece already scanned inside current bill!", "error");
+        return;
+      }
+
+      isProcessingScan = true;
+      displayToast("Verifying piece code...", "primary");
+
+      try {
+        // Query database directly checking structural state of individual physical barcode piece
+        const pieceDocRef = doc(db, "inventory_pieces", decodedText);
+        const pieceSnapshot = await getDoc(pieceDocRef);
+
+        if (!pieceSnapshot.exists()) {
+          displayToast("Invalid QR: Barcode not found in database catalog.", "error");
+          isProcessingScan = false;
+          return;
+        }
+
+        const pieceData = pieceSnapshot.data();
+
+        // Security check: Guard rails prevent processing if item was already finalized in a historical transaction
+        if (pieceData.status === "Sold") {
+          displayToast("Scanned Item Rejected: This individual piece was already sold!", "error");
+          isProcessingScan = false;
+          return;
+        }
+
+        const productId = pieceData.productId;
+        const productName = pieceData.productName || "Unknown Accessory";
+        const productPrice = parseFloat(pieceData.price || 0);
+
+        // UI Smart Grouping Logic: If product exists, bump quantity rather than stacking new lines
+        if (cart[productId]) {
+          cart[productId].quantity += 1;
+          cart[productId].subtotal += productPrice;
+        } else {
+          cart[productId] = {
+            name: productName,
+            price: productPrice,
+            quantity: 1,
+            subtotal: productPrice
+          };
+        }
+
+        // Lock individual piece token identifier inside local runtime session
+        scannedQRCodes.push(decodedText);
+        updateCartUI();
+        displayToast(`${productName} added to cart.`, "success");
+
+      } catch (err) {
+        console.error(err);
+        displayToast("Error fetching item data.", "error");
+      } finally {
+        // Delay resetting scanning availability state briefly to create a comfortable pace for physical workflows
+        setTimeout(() => { isProcessingScan = false; }, 1500);
+      }
+    }
+
+    // Refresh dynamic frontend UI components containing active cart table information
+    function updateCartUI() {
+      const tbody = document.getElementById('cart-rows');
+      const checkoutBtn = document.getElementById('btn-generate-bill');
+      
+      if (scannedQRCodes.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td></tr>`;
+        document.getElementById('bill-total').innerText = "₹0.00";
+        checkoutBtn.disabled = true;
+        return;
+      }
+
+      let rowsHTML = "";
+      let totalAmount = 0;
+
+      for (const id in cart) {
+        const item = cart[id];
+        totalAmount += item.subtotal;
+        rowsHTML += `
+          <tr>
+            <td>${item.name}</td>
+            <td>₹${item.price.toFixed(2)}</td>
+            <td>${item.quantity}</td>
+            <td>₹${item.subtotal.toFixed(2)}</td>
+          </tr>
+        `;
+      }
+
+      tbody.innerHTML = rowsHTML;
+      document.getElementById('bill-total').innerText = `₹${totalAmount.toFixed(2)}`;
+      checkoutBtn.disabled = false;
+    }
+
+    // Complete customer transaction and update target item state variables
+    document.getElementById('btn-generate-bill').addEventListener('click', async () => {
+      if (scannedQRCodes.length === 0) return;
+
+      const staffSelect = document.getElementById('staff-select');
+      const selectedStaff = staffSelect.value;
+      
+      if (!selectedStaff) {
+        displayToast("Please select your staff name first!", "error");
+        // Flash the select box red briefly to draw attention
+        staffSelect.style.borderColor = "var(--danger)";
+        setTimeout(() => staffSelect.style.borderColor = "var(--card-border)", 2000);
+        return;
+      }
+
+      const checkoutBtn = document.getElementById('btn-generate-bill');
+      checkoutBtn.disabled = true;
+      displayToast("Processing transaction...", "primary");
+
+      try {
+        const batch = writeBatch(db);
+
+        // 1. Permanently update scanned unique piece statuses to 'Sold' so they reject future scanner attempts
+        scannedQRCodes.forEach((qrCode) => {
+          const pieceRef = doc(db, "inventory_pieces", qrCode);
+          batch.update(pieceRef, { 
+            status: "Sold",
+            soldAt: serverTimestamp(),
+            soldByBranch: currentBranch,
+            soldByStaff: selectedStaff
+          });
+        });
+
+        // 2. Generate transaction invoice documentation data entry inside global database collection ledger
+        const newBillRef = doc(collection(db, "bills"));
+        batch.set(newBillRef, {
+          branch: currentBranch,
+          staffName: selectedStaff,
+          timestamp: serverTimestamp(),
+          items: cart,
+          totalPieces: scannedQRCodes.length,
+          totalPaid: parseFloat(document.getElementById('bill-total').innerText.replace('₹', ''))
+        });
+
+        // Commit full transactional operation package as a singular secure database update event
+        await batch.commit();
+
+        displayToast("Invoice Generated Successfully!", "success");
+        
+        // Reset local application state arrays on operational success
+        cart = {};
+        scannedQRCodes = [];
+        updateCartUI();
+        
+        // Reset staff selection for the next customer/transaction if preferred
+        staffSelect.value = "";
+
+      } catch (err) {
+        console.error(err);
+        displayToast("Transactional Error. Please check connectivity.", "error");
+        checkoutBtn.disabled = false;
+      }
+    });
+
+    // UI Theme toggle logic handling
+    const themeBtn = document.getElementById('theme-toggle');
+    themeBtn.addEventListener('click', () => {
+      const isLight = document.documentElement.classList.toggle('light-theme');
+      localStorage.setItem('rj_theme', isLight ? 'light' : 'dark');
+    });
+
+    // Password Visibility toggler element tracking adjustments
+    const togglePasswordBtn = document.getElementById('toggle-password-btn');
+    togglePasswordBtn.addEventListener('click', () => {
+      const passInput = document.getElementById('password-input');
+      if (passInput.type === 'password') {
+        passInput.type = 'text';
+        togglePasswordBtn.style.color = 'var(--primary)';
+      } else {
+        passInput.type = 'password';
+        togglePasswordBtn.style.color = 'var(--text-soft)';
+      }
+    });
+  </script>
+</body>
+</html>
