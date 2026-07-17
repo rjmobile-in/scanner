@@ -268,7 +268,9 @@
         html5QrcodeScanner = new Html5QrcodeScanner("scanner-container", { 
           fps: 10, 
           qrbox: { width: 250, height: 250 },
-          rememberLastUsedCamera: true
+          rememberLastUsedCamera: true,
+          // Restrict scanner to only use the device camera, removing the file upload option
+          supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
         });
         html5QrcodeScanner.render(onScanSuccess);
       }
