@@ -72,8 +72,9 @@
     
     #scanner-container { background: #000; border-radius: 16px; overflow: hidden; width: 100%; min-height: 280px; margin-bottom: 20px; border: 1px solid var(--card-border); }
     
-    /* Flips the video feed horizontally for a mirror effect */
-    #scanner-container video { transform: scaleX(-1); }
+    /* Dynamically flips the video feed horizontally for a mirror effect */
+    #scanner-container video { transition: transform 0.2s ease; }
+    #scanner-container.mirrored video { transform: scaleX(-1); }
     
     .cart-section { width: 100%; margin-top: 10px; }
     .cart-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 12px; display: flex; justify-content: space-between; }
@@ -278,6 +279,14 @@
 
     // Start the camera feed with specific front/back setting
     function startCamera(facingMode) {
+      // Toggle mirror effect: Flip front camera, keep back camera normal
+      const scannerContainer = document.getElementById('scanner-container');
+      if (facingMode === "user") {
+        scannerContainer.classList.add("mirrored");
+      } else {
+        scannerContainer.classList.remove("mirrored");
+      }
+
       const config = { 
         fps: 10, 
         qrbox: { width: 250, height: 250 } 
