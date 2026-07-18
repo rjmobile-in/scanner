@@ -164,9 +164,8 @@
     <!-- Scanner Feed Card -->
     <div class="main-card card-border-top">
       <!-- Active Cashier Select -->
-      <select id="staff-select" class="input-field" style="margin-bottom: 16px;">
-        <option value="" disabled selected>Tap to select your name...</option>
-      </select>
+      <input type="text" id="staff-select" class="input-field" list="staff-list" placeholder="Search and select your name..." style="margin-bottom: 16px;" autocomplete="off" />
+      <datalist id="staff-list"></datalist>
 
       <button id="switch-camera-btn" class="btn-secondary" style="width: 100%; margin-bottom: 16px; display: flex; justify-content: center; align-items: center; gap: 8px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"/><path d="M9 22V12h6v10M2 10.6L12 2l10 8.6"/></svg>
@@ -333,11 +332,10 @@
             document.getElementById('detected-branch-display').innerText = currentBranch;
             
             // Sync Master Data
-            const { data: sData } = await supabase.from('staff_directory').select('name').order('name');
-            if (sData) {
-                document.getElementById('staff-select').innerHTML = `<option value="" disabled selected>Tap to select your name...</option>` + 
-                sData.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
-            }
+            const { data: sData } = await supabase.from('staff_directory').select('name').order('name');
+            if (sData) {
+                document.getElementById('staff-list').innerHTML = sData.map(s => `<option value="${s.name}"></option>`).join('');
+            }
             
             const { data: iData } = await supabase.from('items_directory').select('*');
             if (iData) masterItems = iData;
