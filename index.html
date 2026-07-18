@@ -6,16 +6,12 @@
   <title>Accessories POS | Secure Terminal</title>
   
   <script>
-    if (localStorage.getItem('rj_theme') === 'light') {
-      document.documentElement.classList.add('light-theme');
-    }
+    if (localStorage.getItem('rj_theme') === 'light') { document.documentElement.classList.add('light-theme'); }
   </script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  
-  <!-- HTML5 QR Code library for scanning via device camera -->
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 
   <style>
@@ -48,8 +44,6 @@
     #login-screen p { color: var(--text-soft); margin-bottom: 32px; }
     .input-field { width: 100%; padding: 16px; border-radius: 14px; border: 1px solid var(--card-border); background: var(--input-bg); color: var(--text-main); margin-bottom: 16px; outline: none; font-size: 16px; font-weight: 600; cursor: pointer;}
     .input-field:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-alpha); background: var(--card-bg); }
-    .checkbox-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 24px; font-size: 14px; color: var(--text-soft); cursor: pointer; }
-    .checkbox-row input { accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; }
     #login-btn { width: 100%; padding: 16px; border-radius: 14px; border: none; background: var(--primary); color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s; }
     #login-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-glow); }
     #error-msg { color: var(--danger); font-size: 14px; margin-top: 16px; display: none; background: var(--danger-alpha); padding: 10px; border-radius: 10px; }
@@ -267,6 +261,7 @@
     let isProcessingScan = false;
     let approvedDiscount = 0;
     let activeDiscountChannel = null;
+    let fallbackPollInterval = null; // New Auto-Check Poller
 
     // --- HARDWARE FEEDBACK ---
     function triggerHardwareFeedback(isError = false) {
@@ -391,7 +386,26 @@
       }
     }
 
-    // --- DISCOUNT REQUEST ENGINE ---
+    // --- DISCOUNT REQUEST ENGINE (WITH REALTIME + AUTO-POLL FALLBACK) ---
+    function processDiscountUpdate(updatedData, btn) {
+        if (updatedData.status === "Approved") {
+            approvedDiscount = parseFloat(updatedData.requested_discount);
+            document.getElementById('discount-row').style.display = 'flex';
+            document.getElementById('approved-discount-display').innerText = `-₹${approvedDiscount.toFixed(2)}`;
+            displayToast("Discount Approved!", "success");
+            updateCartUI(); btn.innerText = "Approved"; btn.disabled = false;
+            if (activeDiscountChannel) supabase.removeChannel(activeDiscountChannel);
+            if (fallbackPollInterval) clearInterval(fallbackPollInterval);
+        } else if (updatedData.status === "Rejected") {
+            approvedDiscount = 0;
+            document.getElementById('discount-row').style.display = 'none';
+            displayToast("Discount Rejected by Admin.", "error");
+            updateCartUI(); btn.innerText = "Request Auth"; btn.disabled = false;
+            if (activeDiscountChannel) supabase.removeChannel(activeDiscountChannel);
+            if (fallbackPollInterval) clearInterval(fallbackPollInterval);
+        }
+    }
+
     document.getElementById('btn-request-discount').addEventListener('click', async () => {
       const discountVal = parseFloat(document.getElementById('discount-input').value);
       const staffSelect = document.getElementById('staff-select');
@@ -419,25 +433,20 @@
         if (error) throw error;
         displayToast("Discount sent to Admin for approval...", "primary");
 
-        // Listen for Realtime Update
-        activeDiscountChannel = supabase.channel('discount_updates')
+        // 1. Listen for Realtime Update (Requires Realtime to be ON in Supabase Dashboard)
+        activeDiscountChannel = supabase.channel(`discount_${data.id}`)
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'discount_requests', filter: `id=eq.${data.id}` }, (payload) => {
-            const updatedData = payload.new;
-            if (updatedData.status === "Approved") {
-              approvedDiscount = updatedData.requested_discount;
-              document.getElementById('discount-row').style.display = 'flex';
-              document.getElementById('approved-discount-display').innerText = `-₹${approvedDiscount.toFixed(2)}`;
-              displayToast("Discount Approved!", "success");
-              updateCartUI(); btn.innerText = "Approved"; btn.disabled = false;
-              supabase.removeChannel(activeDiscountChannel);
-            } else if (updatedData.status === "Rejected") {
-              approvedDiscount = 0;
-              document.getElementById('discount-row').style.display = 'none';
-              displayToast("Discount Rejected by Admin.", "error");
-              updateCartUI(); btn.innerText = "Request Auth"; btn.disabled = false;
-              supabase.removeChannel(activeDiscountChannel);
-            }
+             processDiscountUpdate(payload.new, btn);
           }).subscribe();
+          
+        // 2. Fallback Poller (Auto-checks DB every 3 seconds just in case Realtime fails)
+        if (fallbackPollInterval) clearInterval(fallbackPollInterval);
+        fallbackPollInterval = setInterval(async () => {
+            const { data: pollData } = await supabase.from('discount_requests').select('status, requested_discount').eq('id', data.id).single();
+            if (pollData && pollData.status !== "Pending") {
+                processDiscountUpdate(pollData, btn);
+            }
+        }, 3000);
           
       } catch (err) { displayToast("Failed to request discount.", "error"); btn.innerText = "Request Auth"; btn.disabled = false; }
     });
@@ -480,48 +489,30 @@
       let finalTotal = parseFloat(document.getElementById('bill-total').innerText.replace('₹', '')); let finalPieces = scannedQRCodes.length;
 
       try {
-        // 1. Verify Status First
         const { data: verificationData, error: verifyError } = await supabase.from('inventory_pieces').select('id, status').in('id', scannedQRCodes);
         if(verifyError) throw new Error("Could not verify items.");
-        
-        for(const piece of verificationData) {
-            if(piece.status === 'Sold') throw new Error(`Piece ${piece.id} was scanned by another branch!`);
-        }
+        for(const piece of verificationData) { if(piece.status === 'Sold') throw new Error(`Piece ${piece.id} was scanned by another branch!`); }
 
-        // 2. Update Inventory
         const { error: updateError } = await supabase.from('inventory_pieces').update({ status: 'Sold', sold_by_staff: selectedStaff, sold_at: new Date().toISOString() }).in('id', scannedQRCodes);
         if(updateError) throw updateError;
 
-        // 3. Document Bill
         const { data: newBillData, error: billError } = await supabase.from('bills').insert({
-            branch: currentBranch,
-            staff_name: selectedStaff,
-            items: cart, 
-            total_pieces: finalPieces,
-            discount_applied: approvedDiscount,
-            total_paid: Math.max(0, finalTotal)
+            branch: currentBranch, staff_name: selectedStaff, items: cart, total_pieces: finalPieces, discount_applied: approvedDiscount, total_paid: Math.max(0, finalTotal)
         }).select('id').single();
         if(billError) throw billError;
 
-        // Trigger Receipt Print
         document.getElementById('rcpt-branch').innerText = currentBranch; document.getElementById('rcpt-staff').innerText = `Cashier: ${selectedStaff}`; document.getElementById('rcpt-date').innerText = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
         let rcptRows = ""; for (const id in cart) { const rcptItem = cart[id]; rcptRows += `<tr><td>${rcptItem.name}<br><small>@ ₹${rcptItem.price}</small></td><td style="text-align: center;">${rcptItem.quantity}</td><td style="text-align: right;">₹${rcptItem.subtotal.toFixed(2)}</td></tr>`; }
         document.getElementById('rcpt-items').innerHTML = rcptRows; document.getElementById('rcpt-total-pieces').innerText = finalPieces;
         
         if(approvedDiscount > 0) { document.getElementById('rcpt-discount-row').style.display = 'flex'; document.getElementById('rcpt-discount').innerText = `-₹${approvedDiscount.toFixed(2)}`; } else { document.getElementById('rcpt-discount-row').style.display = 'none'; }
         document.getElementById('rcpt-total-amount').innerText = `₹${Math.max(0, finalTotal).toFixed(2)}`;
-        
-        // Supabase UUIDs are long, let's take the first 8 characters
         document.getElementById('rcpt-id-tag').innerText = `Bill Ref: ${newBillData.id.split('-')[0].toUpperCase()}`;
 
         window.print(); displayToast("Invoice Generated Successfully!", "success");
         cart = {}; scannedQRCodes = []; approvedDiscount = 0; document.getElementById('discount-row').style.display = 'none'; document.getElementById('discount-input').value = ""; document.getElementById('btn-request-discount').innerText = "Request Auth"; updateCartUI(); staffSelect.value = "";
 
-      } catch (err) {
-        displayToast(err.message || "Transactional Error.", "error");
-      } finally {
-        checkoutBtn.disabled = false; checkoutBtn.innerHTML = "Generate Bill & Print Receipt";
-      }
+      } catch (err) { displayToast(err.message || "Transactional Error.", "error"); } finally { checkoutBtn.disabled = false; checkoutBtn.innerHTML = "Generate Bill & Print Receipt"; }
     });
 
     document.getElementById('switch-camera-btn').addEventListener('click', () => {
