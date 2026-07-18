@@ -261,7 +261,7 @@
     let isProcessingScan = false;
     let approvedDiscount = 0;
     let activeDiscountChannel = null;
-    let fallbackPollInterval = null; // New Auto-Check Poller
+    let fallbackPollInterval = null; 
 
     // --- HARDWARE FEEDBACK ---
     function triggerHardwareFeedback(isError = false) {
@@ -386,7 +386,7 @@
       }
     }
 
-    // --- DISCOUNT REQUEST ENGINE (WITH REALTIME + AUTO-POLL FALLBACK) ---
+    // --- DISCOUNT REQUEST ENGINE ---
     function processDiscountUpdate(updatedData, btn) {
         if (updatedData.status === "Approved") {
             approvedDiscount = parseFloat(updatedData.requested_discount);
@@ -433,13 +433,11 @@
         if (error) throw error;
         displayToast("Discount sent to Admin for approval...", "primary");
 
-        // 1. Listen for Realtime Update (Requires Realtime to be ON in Supabase Dashboard)
         activeDiscountChannel = supabase.channel(`discount_${data.id}`)
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'discount_requests', filter: `id=eq.${data.id}` }, (payload) => {
              processDiscountUpdate(payload.new, btn);
           }).subscribe();
           
-        // 2. Fallback Poller (Auto-checks DB every 3 seconds just in case Realtime fails)
         if (fallbackPollInterval) clearInterval(fallbackPollInterval);
         fallbackPollInterval = setInterval(async () => {
             const { data: pollData } = await supabase.from('discount_requests').select('status, requested_discount').eq('id', data.id).single();
