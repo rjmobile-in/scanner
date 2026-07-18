@@ -71,8 +71,6 @@
     .card-border-top::after { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, var(--primary), #3b82f6); }
     
     #scanner-container { background: #000; border-radius: 16px; overflow: hidden; width: 100%; min-height: 280px; margin-bottom: 20px; border: 1px solid var(--card-border); }
-    
-    /* Dynamically flips the video feed horizontally for a mirror effect */
     #scanner-container video { transition: transform 0.2s ease; }
     #scanner-container.mirrored video { transform: scaleX(-1); }
     
@@ -96,26 +94,20 @@
 
     /* PROFESSIONAL RECEIPT PRINTER (Thermal POS 80mm format) */
     #print-receipt { display: none; }
-    
     @media print {
       body * { visibility: hidden; }
       body { background: white; margin: 0; padding: 0; }
       #print-receipt, #print-receipt * { visibility: visible; color: black; font-family: monospace, Courier, sans-serif; }
-      #print-receipt { 
-        display: block; position: absolute; left: 0; top: 0; width: 80mm; padding: 5mm; margin: 0 auto;
-      }
+      #print-receipt { display: block; position: absolute; left: 0; top: 0; width: 80mm; padding: 5mm; margin: 0 auto; }
       .rcpt-header { text-align: center; margin-bottom: 12px; }
       .rcpt-header h2 { font-size: 20px; font-weight: bold; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 1px;}
       .rcpt-header p { margin: 2px 0; font-size: 12px; font-weight: bold;}
       .rcpt-divider { border-bottom: 1px dashed #000; margin: 10px 0; }
-      
       .rcpt-table { width: 100%; font-size: 12px; border-collapse: collapse; }
       .rcpt-table th { text-align: left; padding-bottom: 4px; border-bottom: 1px solid #000; }
       .rcpt-table td { padding: 4px 0; vertical-align: top; }
-      
       .rcpt-totals { margin-top: 10px; font-size: 14px; text-align: right; }
       .rcpt-totals div { display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;}
-      
       .rcpt-footer { text-align: center; margin-top: 15px; font-size: 12px; font-style: italic; }
       .rcpt-barcode { margin-top: 10px; text-align: center; font-size: 10px; color: #555;}
     }
@@ -137,7 +129,6 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
       </button>
     </div>
-    <label class="checkbox-row"><input type="checkbox" id="remember-me" checked> Keep terminal signed in</label>
     <button id="login-btn">Secure Login</button>
     <div id="error-msg">Authentication failed.</div>
   </div>
@@ -261,51 +252,34 @@
   </div>
 
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-app.js";
-    import { getFirestore, doc, getDoc, collection, runTransaction, serverTimestamp, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
-    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-auth.js";
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
-    // Linked to your specific backend database app config
-    const firebaseConfig = {
-      apiKey: "AIzaSyB-tHAIqKX27wR6alL4GQI-FGu96cHE4pY",
-      authDomain: "accessories-690d0.firebaseapp.com",
-      projectId: "accessories-690d0",
-      storageBucket: "accessories-690d0.firebasestorage.app",
-      messagingSenderId: "675868074015",
-      appId: "1:675868074015:web:30676e4e7dd7d9daa5b52a",
-      measurementId: "G-MTMFMC8B0L"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    const auth = getAuth(app);
+    // --- SUPABASE CONFIGURATION ---
+    const SUPABASE_URL = 'https://upvhrarcbjfodzvohcpq.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwdmhyYXJjYmpmb2R6dm9oY3BxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzNTEzMDcsImV4cCI6MjA5OTkyNzMwN30.4kFdGZM2B24jRbHCoZKCd7TbSXRF-3wEWqH2I4V9Fj0';
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     let html5Qrcode = null;
     let currentFacingMode = "environment";
     let currentBranch = ""; 
-    let cart = {}; // Object structured by Product ID to combine matching items
-    let scannedQRCodes = []; // Track unique individual pieces inside current session
+    let cart = {}; 
+    let scannedQRCodes = []; 
     let isProcessingScan = false;
     let approvedDiscount = 0;
-    let activeDiscountRequestRef = null;
+    let activeDiscountChannel = null;
 
-    // --- SENSORY HARDWARE FEEDBACK ---
+    // --- HARDWARE FEEDBACK ---
     function triggerHardwareFeedback(isError = false) {
-      if (navigator.vibrate) {
-        navigator.vibrate(isError ? [100, 50, 100] : 60);
-      }
+      if (navigator.vibrate) navigator.vibrate(isError ? [100, 50, 100] : 60);
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(isError ? 220 : 880, audioCtx.currentTime); // Low buzz vs high chirp
+        oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
+        oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(isError ? 220 : 880, audioCtx.currentTime);
         gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + (isError ? 0.3 : 0.08));
-      } catch (e) { console.log("Audio suppressed."); }
+        oscillator.start(); oscillator.stop(audioCtx.currentTime + (isError ? 0.3 : 0.08));
+      } catch (e) { }
     }
 
     function displayToast(msg, statusType = "success") {
@@ -322,44 +296,53 @@
       toast.timeout = setTimeout(() => { toast.className = "glass-effect"; }, 4000);
     }
 
-    onAuthStateChanged(auth, (user) => {
-      document.getElementById('global-loader').style.display = 'none';
-      if (user) {
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('dashboard').style.display = 'flex';
-        
-        const email = user.email.toLowerCase();
-        if (email.includes('murlipura1')) currentBranch = "Murlipura, 1 Number";
-        else if (email.includes('vki17')) currentBranch = "VKI, 17 Number";
-        else if (email.includes('lohamandi')) currentBranch = "VKI, Lohamandi";
-        else if (email.includes('shastri')) currentBranch = "Shastri Nagar";
-        else if (email.includes('murlipura6')) currentBranch = "Murlipura, 6 Number";
-        else currentBranch = "Central / Unassigned Branch";
-
-        document.getElementById('detected-branch-display').innerText = currentBranch;
-        initScanner();
-      } else {
-        document.getElementById('login-screen').style.display = 'block';
-        document.getElementById('dashboard').style.display = 'none';
-        stopScanner();
-        currentBranch = "";
-      }
+    // --- AUTHENTICATION STATE ---
+    async function checkUser() {
+        const { data: { session } } = await supabase.auth.getSession();
+        handleAuthChange(session?.user);
+    }
+    
+    supabase.auth.onAuthStateChange((event, session) => {
+        handleAuthChange(session?.user);
     });
+
+    function handleAuthChange(user) {
+        document.getElementById('global-loader').style.display = 'none';
+        if (user) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'flex';
+            
+            const email = user.email.toLowerCase();
+            if (email.includes('murlipura1')) currentBranch = "Murlipura, 1 Number";
+            else if (email.includes('vki17')) currentBranch = "VKI, 17 Number";
+            else if (email.includes('lohamandi')) currentBranch = "VKI, Lohamandi";
+            else if (email.includes('shastri')) currentBranch = "Shastri Nagar";
+            else if (email.includes('murlipura6')) currentBranch = "Murlipura, 6 Number";
+            else currentBranch = "Central / Unassigned Branch";
+
+            document.getElementById('detected-branch-display').innerText = currentBranch;
+            initScanner();
+        } else {
+            document.getElementById('login-screen').style.display = 'block';
+            document.getElementById('dashboard').style.display = 'none';
+            stopScanner();
+            currentBranch = "";
+        }
+    }
+    checkUser();
 
     document.getElementById('password-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('login-btn').click(); });
+    
     document.getElementById('login-btn').addEventListener('click', async () => {
-      const e = document.getElementById('email-input').value, p = document.getElementById('password-input').value, r = document.getElementById('remember-me').checked, msg = document.getElementById('error-msg');
-      try { 
-        msg.style.display = 'none'; 
-        await setPersistence(auth, r ? browserLocalPersistence : browserSessionPersistence); 
-        await signInWithEmailAndPassword(auth, e, p); 
-      } catch (err) { 
-        msg.style.display = 'block'; msg.innerText = err.message; 
-      }
+      const e = document.getElementById('email-input').value, p = document.getElementById('password-input').value, msg = document.getElementById('error-msg');
+      msg.style.display = 'none'; 
+      const { error } = await supabase.auth.signInWithPassword({ email: e, password: p });
+      if(error) { msg.style.display = 'block'; msg.innerText = error.message; }
     });
     
-    document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
+    document.getElementById('logout-btn').addEventListener('click', async () => { await supabase.auth.signOut(); });
 
+    // --- SCANNER ENGINE ---
     function initScanner() {
       if (!html5Qrcode) html5Qrcode = new Html5Qrcode("scanner-container");
       startCamera(currentFacingMode);
@@ -367,83 +350,42 @@
 
     function startCamera(facingMode) {
       const scannerContainer = document.getElementById('scanner-container');
-      if (facingMode === "user") scannerContainer.classList.add("mirrored");
-      else scannerContainer.classList.remove("mirrored");
-
-      html5Qrcode.start(
-        { facingMode: facingMode },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        onScanSuccess,
-        (errorMessage) => { /* Ignore empty frames */ }
-      ).catch((err) => {
-        displayToast("Camera access denied or unavailable.", "error");
-      });
+      if (facingMode === "user") scannerContainer.classList.add("mirrored"); else scannerContainer.classList.remove("mirrored");
+      html5Qrcode.start({ facingMode: facingMode }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, () => {}).catch(() => displayToast("Camera access denied.", "error"));
     }
 
     function stopScanner() {
-      if (html5Qrcode && html5Qrcode.isScanning) {
-        html5Qrcode.stop().then(() => html5Qrcode.clear()).catch(err => console.error(err));
-      }
+      if (html5Qrcode && html5Qrcode.isScanning) { html5Qrcode.stop().then(() => html5Qrcode.clear()).catch(err => console.error(err)); }
     }
 
     async function onScanSuccess(decodedText) {
       if (isProcessingScan) return;
-      
-      if (scannedQRCodes.includes(decodedText)) {
-        triggerHardwareFeedback(true);
-        displayToast("Piece already scanned inside current bill!", "error");
-        return;
-      }
-
+      if (scannedQRCodes.includes(decodedText)) { triggerHardwareFeedback(true); displayToast("Piece already scanned inside current bill!", "error"); return; }
       isProcessingScan = true;
 
       try {
-        const pieceDocRef = doc(db, "inventory_pieces", decodedText);
-        const pieceSnapshot = await getDoc(pieceDocRef);
+        const { data: pieceData, error } = await supabase.from('inventory_pieces').select('*').eq('id', decodedText).single();
 
-        if (!pieceSnapshot.exists()) {
-          triggerHardwareFeedback(true);
-          displayToast("Invalid QR: Barcode not found.", "error");
-          isProcessingScan = false; return;
-        }
+        if (error || !pieceData) { triggerHardwareFeedback(true); displayToast("Invalid QR: Barcode not found.", "error"); isProcessingScan = false; return; }
+        if (pieceData.status === "Sold") { triggerHardwareFeedback(true); displayToast("Rejected: This piece was already sold!", "error"); isProcessingScan = false; return; }
 
-        const pieceData = pieceSnapshot.data();
-
-        if (pieceData.status === "Sold") {
-          triggerHardwareFeedback(true);
-          displayToast("Scanned Item Rejected: This individual piece was already sold!", "error");
-          isProcessingScan = false; return;
-        }
-
-        const productId = pieceData.productId;
-        const productName = pieceData.productName || "Unknown Accessory";
+        const productId = pieceData.product_id;
+        const productName = pieceData.product_name || "Unknown Accessory";
         const productPrice = parseFloat(pieceData.price || 0);
-        const productCost = parseFloat(pieceData.costPrice || 0); // Lock historical cost for data integrity
+        const productCost = parseFloat(pieceData.cost_price || 0);
 
         if (cart[productId]) {
-          cart[productId].quantity += 1;
-          cart[productId].subtotal += productPrice;
-          cart[productId].totalCost += productCost; 
+          cart[productId].quantity += 1; cart[productId].subtotal += productPrice; cart[productId].totalCost += productCost; 
         } else {
-          cart[productId] = {
-            name: productName,
-            price: productPrice,
-            costPrice: productCost, 
-            quantity: 1,
-            subtotal: productPrice,
-            totalCost: productCost
-          };
+          cart[productId] = { name: productName, price: productPrice, costPrice: productCost, quantity: 1, subtotal: productPrice, totalCost: productCost };
         }
 
         scannedQRCodes.push(decodedText);
         updateCartUI();
-        
-        triggerHardwareFeedback(false);
-        displayToast(`${productName} added to cart.`, "success");
+        triggerHardwareFeedback(false); displayToast(`${productName} added to cart.`, "success");
 
       } catch (err) {
-        triggerHardwareFeedback(true);
-        displayToast("Error fetching item data.", "error");
+        triggerHardwareFeedback(true); displayToast("Error fetching item data.", "error");
       } finally {
         setTimeout(() => { isProcessingScan = false; }, 1500);
       }
@@ -454,275 +396,144 @@
       const discountVal = parseFloat(document.getElementById('discount-input').value);
       const staffSelect = document.getElementById('staff-select');
       
-      // 1. Prevent request if cart is empty
-      if (scannedQRCodes.length === 0) {
-        displayToast("Cart is empty! Scan items first.", "error");
-        return;
-      }
-      
-      if (!staffSelect.value) {
-        displayToast("Select your staff name first!", "error");
-        return;
-      }
-      if (!discountVal || discountVal <= 0) {
-        displayToast("Enter a valid discount amount.", "error");
-        return;
-      }
+      if (scannedQRCodes.length === 0) { displayToast("Cart is empty! Scan items first.", "error"); return; }
+      if (!staffSelect.value) { displayToast("Select your staff name first!", "error"); return; }
+      if (!discountVal || discountVal <= 0) { displayToast("Enter a valid discount amount.", "error"); return; }
 
-      // 2. Gather current bill details
-      let currentSubtotal = 0;
-      let itemsSummary = [];
-      for (const id in cart) {
-        const item = cart[id];
-        currentSubtotal += item.subtotal;
-        itemsSummary.push(`${item.name} (x${item.quantity})`);
-      }
+      let currentSubtotal = 0; let itemsSummary = [];
+      for (const id in cart) { const item = cart[id]; currentSubtotal += item.subtotal; itemsSummary.push(`${item.name} (x${item.quantity})`); }
 
-      const btn = document.getElementById('btn-request-discount');
-      btn.innerText = "Waiting...";
-      btn.disabled = true;
+      const btn = document.getElementById('btn-request-discount'); btn.innerText = "Waiting..."; btn.disabled = true;
 
       try {
-        // 3. Send bill details along with the request
-        const reqRef = await addDoc(collection(db, "discount_requests"), {
+        const { data, error } = await supabase.from('discount_requests').insert({
           branch: currentBranch,
-          staffName: staffSelect.value,
-          requestedDiscount: discountVal,
-          billSubtotal: currentSubtotal,           // NEW: Send subtotal
-          totalPieces: scannedQRCodes.length,      // NEW: Send piece count
-          itemsList: itemsSummary.join(', '),      // NEW: Send list of items
-          status: "Pending",
-          timestamp: serverTimestamp()
-        });
+          staff_name: staffSelect.value,
+          requested_discount: discountVal,
+          bill_subtotal: currentSubtotal,
+          total_pieces: scannedQRCodes.length,
+          items_list: itemsSummary.join(', '),
+          status: "Pending"
+        }).select().single();
 
+        if (error) throw error;
         displayToast("Discount sent to Admin for approval...", "primary");
 
-        // Listen for Admin response in real-time
-        activeDiscountRequestRef = onSnapshot(reqRef, (docSnap) => {
-          const data = docSnap.data();
-          if (data.status === "Approved") {
-            approvedDiscount = data.requestedDiscount;
-            document.getElementById('discount-row').style.display = 'flex';
-            document.getElementById('approved-discount-display').innerText = `-₹${approvedDiscount.toFixed(2)}`;
-            displayToast("Discount Approved!", "success");
-            updateCartUI();
-            btn.innerText = "Approved";
-            btn.disabled = false;
-            
-            if(activeDiscountRequestRef) activeDiscountRequestRef(); 
-          } else if (data.status === "Rejected") {
-            approvedDiscount = 0;
-            document.getElementById('discount-row').style.display = 'none';
-            displayToast("Discount Rejected by Admin.", "error");
-            btn.innerText = "Request Auth";
-            btn.disabled = false;
-            updateCartUI();
-            
-            if(activeDiscountRequestRef) activeDiscountRequestRef(); 
-          }
-        });
-      } catch (err) {
-        displayToast("Failed to request discount.", "error");
-        btn.innerText = "Request Auth";
-        btn.disabled = false;
-      }
+        // Listen for Realtime Update
+        activeDiscountChannel = supabase.channel('discount_updates')
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'discount_requests', filter: `id=eq.${data.id}` }, (payload) => {
+            const updatedData = payload.new;
+            if (updatedData.status === "Approved") {
+              approvedDiscount = updatedData.requested_discount;
+              document.getElementById('discount-row').style.display = 'flex';
+              document.getElementById('approved-discount-display').innerText = `-₹${approvedDiscount.toFixed(2)}`;
+              displayToast("Discount Approved!", "success");
+              updateCartUI(); btn.innerText = "Approved"; btn.disabled = false;
+              supabase.removeChannel(activeDiscountChannel);
+            } else if (updatedData.status === "Rejected") {
+              approvedDiscount = 0;
+              document.getElementById('discount-row').style.display = 'none';
+              displayToast("Discount Rejected by Admin.", "error");
+              updateCartUI(); btn.innerText = "Request Auth"; btn.disabled = false;
+              supabase.removeChannel(activeDiscountChannel);
+            }
+          }).subscribe();
+          
+      } catch (err) { displayToast("Failed to request discount.", "error"); btn.innerText = "Request Auth"; btn.disabled = false; }
     });
 
-    // --- ROW REMOVAL ENGINE ---
     window.removeProductFromCart = function(productId) {
       if (!cart[productId]) return;
-      
-      // Remove ONE physical piece tag matching this Product SKU from the scanned codes array
       const index = scannedQRCodes.findIndex(code => code.startsWith(productId));
       if (index > -1) scannedQRCodes.splice(index, 1);
       
-      // Decrement Cart Logic
       if (cart[productId].quantity > 1) {
-          cart[productId].quantity -= 1;
-          cart[productId].subtotal -= cart[productId].price;
-          cart[productId].totalCost -= cart[productId].costPrice;
-      } else {
-          delete cart[productId];
-      }
-      
-      updateCartUI();
-      displayToast("Item removed from bill.", "primary");
+          cart[productId].quantity -= 1; cart[productId].subtotal -= cart[productId].price; cart[productId].totalCost -= cart[productId].costPrice;
+      } else { delete cart[productId]; }
+      updateCartUI(); displayToast("Item removed from bill.", "primary");
     };
 
     function updateCartUI() {
-      const tbody = document.getElementById('cart-rows');
-      const checkoutBtn = document.getElementById('btn-generate-bill');
-      
+      const tbody = document.getElementById('cart-rows'); const checkoutBtn = document.getElementById('btn-generate-bill');
       if (scannedQRCodes.length === 0) {
         tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td></tr>`;
-        document.getElementById('bill-subtotal').innerText = "₹0.00";
-        document.getElementById('bill-total').innerText = "₹0.00";
-        checkoutBtn.disabled = true;
-        return;
+        document.getElementById('bill-subtotal').innerText = "₹0.00"; document.getElementById('bill-total').innerText = "₹0.00"; checkoutBtn.disabled = true; return;
       }
 
-      let rowsHTML = "";
-      let totalAmount = 0;
-
+      let rowsHTML = ""; let totalAmount = 0;
       for (const id in cart) {
-        const item = cart[id];
-        totalAmount += item.subtotal;
-        rowsHTML += `
-          <tr>
-            <td>${item.name}</td>
-            <td>₹${item.price.toFixed(2)}</td>
-            <td style="text-align: center; font-weight: 800;">${item.quantity}</td>
-            <td>₹${item.subtotal.toFixed(2)}</td>
-            <td style="text-align: right;">
-              <button class="btn-delete-row" onclick="window.removeProductFromCart('${id}')">✕</button>
-            </td>
-          </tr>
-        `;
+        const item = cart[id]; totalAmount += item.subtotal;
+        rowsHTML += `<tr><td>${item.name}</td><td>₹${item.price.toFixed(2)}</td><td style="text-align: center; font-weight: 800;">${item.quantity}</td><td>₹${item.subtotal.toFixed(2)}</td><td style="text-align: right;"><button class="btn-delete-row" onclick="window.removeProductFromCart('${id}')">✕</button></td></tr>`;
       }
-
-      tbody.innerHTML = rowsHTML;
-      document.getElementById('bill-subtotal').innerText = `₹${totalAmount.toFixed(2)}`;
-      
-      const finalAmount = totalAmount - approvedDiscount;
-      document.getElementById('bill-total').innerText = `₹${Math.max(0, finalAmount).toFixed(2)}`;
+      tbody.innerHTML = rowsHTML; document.getElementById('bill-subtotal').innerText = `₹${totalAmount.toFixed(2)}`;
+      const finalAmount = totalAmount - approvedDiscount; document.getElementById('bill-total').innerText = `₹${Math.max(0, finalAmount).toFixed(2)}`;
       checkoutBtn.disabled = false;
     }
 
-    // --- ATOMIC TRANSACTION & THERMAL PRINT ---
+    // --- CHECKOUT & DB UPDATE ---
     document.getElementById('btn-generate-bill').addEventListener('click', async () => {
       if (scannedQRCodes.length === 0) return;
+      const staffSelect = document.getElementById('staff-select'); const selectedStaff = staffSelect.value;
+      if (!selectedStaff) { displayToast("Please select your staff name first!", "error"); staffSelect.style.borderColor = "var(--danger)"; setTimeout(() => staffSelect.style.borderColor = "var(--card-border)", 2000); return; }
 
-      const staffSelect = document.getElementById('staff-select');
-      const selectedStaff = staffSelect.value;
-      
-      if (!selectedStaff) {
-        displayToast("Please select your staff name first!", "error");
-        staffSelect.style.borderColor = "var(--danger)";
-        setTimeout(() => staffSelect.style.borderColor = "var(--card-border)", 2000);
-        return;
-      }
-
-      const checkoutBtn = document.getElementById('btn-generate-bill');
-      checkoutBtn.disabled = true;
-      checkoutBtn.innerHTML = "Processing Securely...";
-      
-      let finalTotal = parseFloat(document.getElementById('bill-total').innerText.replace('₹', ''));
-      let finalPieces = scannedQRCodes.length;
-      let billId = "";
+      const checkoutBtn = document.getElementById('btn-generate-bill'); checkoutBtn.disabled = true; checkoutBtn.innerHTML = "Processing Securely...";
+      let finalTotal = parseFloat(document.getElementById('bill-total').innerText.replace('₹', '')); let finalPieces = scannedQRCodes.length;
 
       try {
-        // Atomic transaction ensures absolute database lock & double-scan protection
-        await runTransaction(db, async (transaction) => {
-          
-          // 1. Double verification lock
-          for (const qrCode of scannedQRCodes) {
-            const pieceRef = doc(db, "inventory_pieces", qrCode);
-            const snapshot = await transaction.get(pieceRef);
-            
-            if (!snapshot.exists() || snapshot.data().status === "Sold") {
-              throw new Error(`Piece ${qrCode} was scanned by another branch!`);
-            }
-          }
+        // 1. Verify Status First
+        const { data: verificationData, error: verifyError } = await supabase.from('inventory_pieces').select('id, status').in('id', scannedQRCodes);
+        if(verifyError) throw new Error("Could not verify items.");
+        
+        for(const piece of verificationData) {
+            if(piece.status === 'Sold') throw new Error(`Piece ${piece.id} was scanned by another branch!`);
+        }
 
-          // 2. Perform updates
-          scannedQRCodes.forEach((qrCode) => {
-            const pieceRef = doc(db, "inventory_pieces", qrCode);
-            transaction.update(pieceRef, { 
-              status: "Sold",
-              soldAt: serverTimestamp(),
-              soldByBranch: currentBranch,
-              soldByStaff: selectedStaff
-            });
-          });
+        // 2. Update Inventory
+        const { error: updateError } = await supabase.from('inventory_pieces').update({ status: 'Sold', sold_by_staff: selectedStaff, sold_at: new Date().toISOString() }).in('id', scannedQRCodes);
+        if(updateError) throw updateError;
 
-          // 3. Document Bill
-          const newBillRef = doc(collection(db, "bills"));
-          billId = newBillRef.id;
-          transaction.set(newBillRef, {
+        // 3. Document Bill
+        const { data: newBillData, error: billError } = await supabase.from('bills').insert({
             branch: currentBranch,
-            staffName: selectedStaff,
-            timestamp: serverTimestamp(),
-            items: cart, // Successfully preserves Cost Price
-            totalPieces: finalPieces,
-            discountApplied: approvedDiscount,
-            totalPaid: Math.max(0, finalTotal)
-          });
-        });
+            staff_name: selectedStaff,
+            items: cart, 
+            total_pieces: finalPieces,
+            discount_applied: approvedDiscount,
+            total_paid: Math.max(0, finalTotal)
+        }).select('id').single();
+        if(billError) throw billError;
 
-        // Setup the physical thermal receipt DOM
-        document.getElementById('rcpt-branch').innerText = currentBranch;
-        document.getElementById('rcpt-staff').innerText = `Cashier: ${selectedStaff}`;
-        document.getElementById('rcpt-date').innerText = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+        // Trigger Receipt Print
+        document.getElementById('rcpt-branch').innerText = currentBranch; document.getElementById('rcpt-staff').innerText = `Cashier: ${selectedStaff}`; document.getElementById('rcpt-date').innerText = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+        let rcptRows = ""; for (const id in cart) { const rcptItem = cart[id]; rcptRows += `<tr><td>${rcptItem.name}<br><small>@ ₹${rcptItem.price}</small></td><td style="text-align: center;">${rcptItem.quantity}</td><td style="text-align: right;">₹${rcptItem.subtotal.toFixed(2)}</td></tr>`; }
+        document.getElementById('rcpt-items').innerHTML = rcptRows; document.getElementById('rcpt-total-pieces').innerText = finalPieces;
         
-        let rcptRows = "";
-        for (const id in cart) {
-            const rcptItem = cart[id];
-            rcptRows += `<tr>
-                <td>${rcptItem.name}<br><small>@ ₹${rcptItem.price}</small></td>
-                <td style="text-align: center;">${rcptItem.quantity}</td>
-                <td style="text-align: right;">₹${rcptItem.subtotal.toFixed(2)}</td>
-            </tr>`;
-        }
-        document.getElementById('rcpt-items').innerHTML = rcptRows;
-        document.getElementById('rcpt-total-pieces').innerText = finalPieces;
-        
-        if(approvedDiscount > 0) {
-            document.getElementById('rcpt-discount-row').style.display = 'flex';
-            document.getElementById('rcpt-discount').innerText = `-₹${approvedDiscount.toFixed(2)}`;
-        } else {
-            document.getElementById('rcpt-discount-row').style.display = 'none';
-        }
-        
+        if(approvedDiscount > 0) { document.getElementById('rcpt-discount-row').style.display = 'flex'; document.getElementById('rcpt-discount').innerText = `-₹${approvedDiscount.toFixed(2)}`; } else { document.getElementById('rcpt-discount-row').style.display = 'none'; }
         document.getElementById('rcpt-total-amount').innerText = `₹${Math.max(0, finalTotal).toFixed(2)}`;
-        document.getElementById('rcpt-id-tag').innerText = `Bill Ref: ${billId.slice(-6).toUpperCase()}`;
+        
+        // Supabase UUIDs are long, let's take the first 8 characters
+        document.getElementById('rcpt-id-tag').innerText = `Bill Ref: ${newBillData.id.split('-')[0].toUpperCase()}`;
 
-        // Trigger native hardware print logic
-        window.print();
-        
-        displayToast("Invoice Generated Successfully!", "success");
-        
-        // Reset state
-        cart = {}; 
-        scannedQRCodes = []; 
-        approvedDiscount = 0;
-        document.getElementById('discount-row').style.display = 'none';
-        document.getElementById('discount-input').value = "";
-        document.getElementById('btn-request-discount').innerText = "Request Auth";
-        updateCartUI(); 
-        staffSelect.value = "";
+        window.print(); displayToast("Invoice Generated Successfully!", "success");
+        cart = {}; scannedQRCodes = []; approvedDiscount = 0; document.getElementById('discount-row').style.display = 'none'; document.getElementById('discount-input').value = ""; document.getElementById('btn-request-discount').innerText = "Request Auth"; updateCartUI(); staffSelect.value = "";
 
       } catch (err) {
-        console.error(err);
         displayToast(err.message || "Transactional Error.", "error");
       } finally {
-        checkoutBtn.disabled = false;
-        checkoutBtn.innerHTML = "Generate Bill & Print Receipt";
+        checkoutBtn.disabled = false; checkoutBtn.innerHTML = "Generate Bill & Print Receipt";
       }
     });
 
     document.getElementById('switch-camera-btn').addEventListener('click', () => {
       currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
-      if (html5Qrcode && html5Qrcode.isScanning) {
-        html5Qrcode.stop().then(() => startCamera(currentFacingMode)).catch(err => console.error(err));
-      } else {
-        startCamera(currentFacingMode);
-      }
+      if (html5Qrcode && html5Qrcode.isScanning) { html5Qrcode.stop().then(() => startCamera(currentFacingMode)); } else { startCamera(currentFacingMode); }
     });
 
     const themeBtn = document.getElementById('theme-toggle');
-    themeBtn.addEventListener('click', () => {
-      const isLight = document.documentElement.classList.toggle('light-theme');
-      localStorage.setItem('rj_theme', isLight ? 'light' : 'dark');
-    });
-
-    const togglePasswordBtn = document.getElementById('toggle-password-btn');
-    togglePasswordBtn.addEventListener('click', () => {
+    themeBtn.addEventListener('click', () => { const isLight = document.documentElement.classList.toggle('light-theme'); localStorage.setItem('rj_theme', isLight ? 'light' : 'dark'); });
+    document.getElementById('toggle-password-btn').addEventListener('click', () => {
       const passInput = document.getElementById('password-input');
-      if (passInput.type === 'password') {
-        passInput.type = 'text'; togglePasswordBtn.style.color = 'var(--primary)';
-      } else {
-        passInput.type = 'password'; togglePasswordBtn.style.color = 'var(--text-soft)';
-      }
+      if (passInput.type === 'password') { passInput.type = 'text'; document.getElementById('toggle-password-btn').style.color = 'var(--primary)'; } else { passInput.type = 'password'; document.getElementById('toggle-password-btn').style.color = 'var(--text-soft)'; }
     });
   </script>
 </body>
