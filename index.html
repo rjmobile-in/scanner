@@ -82,7 +82,9 @@
     .cart-table th, .cart-table td { padding: 12px; border-bottom: 1px solid var(--card-border); }
     .cart-table th { color: var(--text-soft); font-size: 13px; text-transform: uppercase; font-weight: 700; }
     .cart-table td { font-weight: 500; }
-    .total-row { font-size: 18px; font-weight: 800; display: flex; justify-content: space-between; padding: 16px 12px; background: var(--input-bg); border-radius: 12px; margin-bottom: 20px; }
+    .btn-delete-row { background: var(--danger-alpha); border: 1px solid var(--danger); color: var(--danger); border-radius: 8px; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px; font-weight: bold; }
+    .btn-delete-row:hover { background: var(--danger); color: white; }
+    .total-row { font-size: 18px; font-weight: 800; display: flex; justify-content: space-between; padding: 16px 12px; background: var(--input-bg); border-radius: 12px; margin-bottom: 10px; }
 
     .btn-action { width: 100%; padding: 16px; border-radius: 14px; border: none; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
     .btn-in { background: var(--success); box-shadow: 0 4px 12px var(--success-alpha); }
@@ -91,6 +93,32 @@
 
     #toast { visibility: hidden; min-width: 300px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 24px; position: fixed; z-index: 10000; bottom: 40px; left: 50%; transform: translate(-50%, 20px); font-size: 15px; font-weight: 600; color: var(--text-main); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.3s, transform 0.3s, visibility 0.3s; }
     #toast.show { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
+
+    /* PROFESSIONAL RECEIPT PRINTER (Thermal POS 80mm format) */
+    #print-receipt { display: none; }
+    
+    @media print {
+      body * { visibility: hidden; }
+      body { background: white; margin: 0; padding: 0; }
+      #print-receipt, #print-receipt * { visibility: visible; color: black; font-family: monospace, Courier, sans-serif; }
+      #print-receipt { 
+        display: block; position: absolute; left: 0; top: 0; width: 80mm; padding: 5mm; margin: 0 auto;
+      }
+      .rcpt-header { text-align: center; margin-bottom: 12px; }
+      .rcpt-header h2 { font-size: 20px; font-weight: bold; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 1px;}
+      .rcpt-header p { margin: 2px 0; font-size: 12px; font-weight: bold;}
+      .rcpt-divider { border-bottom: 1px dashed #000; margin: 10px 0; }
+      
+      .rcpt-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+      .rcpt-table th { text-align: left; padding-bottom: 4px; border-bottom: 1px solid #000; }
+      .rcpt-table td { padding: 4px 0; vertical-align: top; }
+      
+      .rcpt-totals { margin-top: 10px; font-size: 14px; text-align: right; }
+      .rcpt-totals div { display: flex; justify-content: space-between; margin-bottom: 4px; font-weight: bold;}
+      
+      .rcpt-footer { text-align: center; margin-top: 15px; font-size: 12px; font-style: italic; }
+      .rcpt-barcode { margin-top: 10px; text-align: center; font-size: 10px; color: #555;}
+    }
   </style>
 </head>
 <body>
@@ -160,33 +188,81 @@
             <tr>
               <th>Item Name</th>
               <th>Price</th>
-              <th>Qty</th>
+              <th style="text-align: center;">Qty</th>
               <th>Total</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="cart-rows">
             <tr>
-              <td colspan="4" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td>
+              <td colspan="5" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td>
             </tr>
           </tbody>
         </table>
         
         <div class="total-row">
-          <span>Bill Total:</span>
+          <span>Bill Subtotal:</span>
+          <span id="bill-subtotal">₹0.00</span>
+        </div>
+
+        <div class="total-row" id="discount-row" style="display: none; color: var(--success); font-size: 16px;">
+          <span>Approved Discount:</span>
+          <span id="approved-discount-display">-₹0.00</span>
+        </div>
+        
+        <div class="total-row" style="background: transparent; border-top: 1px solid var(--card-border); border-radius: 0;">
+          <span>Final Total:</span>
           <span id="bill-total">₹0.00</span>
         </div>
 
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+          <input type="number" id="discount-input" class="input-field" placeholder="Request Discount (₹)" style="margin-bottom: 0;" />
+          <button id="btn-request-discount" class="btn-secondary" style="white-space: nowrap;">Request Auth</button>
+        </div>
+
         <button id="btn-generate-bill" class="btn-action btn-in" disabled>
-          Generate Bill & Checkout
+          Generate Bill & Print Receipt
         </button>
       </div>
     </div>
   </div>
 
+  <!-- Hidden Printable Thermal Receipt Container -->
+  <div id="print-receipt">
+    <div class="rcpt-header">
+      <h2>RJ Mobile</h2>
+      <p id="rcpt-branch"></p>
+      <p id="rcpt-staff"></p>
+      <p id="rcpt-date"></p>
+    </div>
+    <div class="rcpt-divider"></div>
+    <table class="rcpt-table">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th style="text-align: center;">Qty</th>
+          <th style="text-align: right;">Total</th>
+        </tr>
+      </thead>
+      <tbody id="rcpt-items">
+      </tbody>
+    </table>
+    <div class="rcpt-divider"></div>
+    <div class="rcpt-totals">
+      <div><span>Total Items:</span> <span id="rcpt-total-pieces">0</span></div>
+      <div id="rcpt-discount-row" style="display: none; color: #555;"><span>Discount:</span> <span id="rcpt-discount">-₹0.00</span></div>
+      <div style="font-size: 18px; margin-top: 8px;"><span>Total:</span> <span id="rcpt-total-amount">₹0.00</span></div>
+    </div>
+    <div class="rcpt-divider"></div>
+    <div class="rcpt-footer">
+      Thank you for shopping with us!
+    </div>
+    <div class="rcpt-barcode" id="rcpt-id-tag"></div>
+  </div>
+
   <script type="module">
-    // Modern Firebase Modular App SDK initialization
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-app.js";
-    import { getFirestore, doc, getDoc, collection, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, collection, runTransaction, serverTimestamp, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
     import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-auth.js";
 
     // Linked to your specific backend database app config
@@ -205,11 +281,32 @@
     const auth = getAuth(app);
 
     let html5Qrcode = null;
-    let currentFacingMode = "environment"; // "environment" = back camera, "user" = front camera
+    let currentFacingMode = "environment";
     let currentBranch = ""; 
     let cart = {}; // Object structured by Product ID to combine matching items
     let scannedQRCodes = []; // Track unique individual pieces inside current session
     let isProcessingScan = false;
+    let approvedDiscount = 0;
+    let activeDiscountRequestRef = null;
+
+    // --- SENSORY HARDWARE FEEDBACK ---
+    function triggerHardwareFeedback(isError = false) {
+      if (navigator.vibrate) {
+        navigator.vibrate(isError ? [100, 50, 100] : 60);
+      }
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(isError ? 220 : 880, audioCtx.currentTime); // Low buzz vs high chirp
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + (isError ? 0.3 : 0.08));
+      } catch (e) { console.log("Audio suppressed."); }
+    }
 
     function displayToast(msg, statusType = "success") {
       const toast = document.getElementById('toast');
@@ -225,7 +322,6 @@
       toast.timeout = setTimeout(() => { toast.className = "glass-effect"; }, 4000);
     }
 
-    // Listens for authentication changes & manages automated branch configuration routing
     onAuthStateChanged(auth, (user) => {
       document.getElementById('global-loader').style.display = 'none';
       if (user) {
@@ -233,7 +329,6 @@
         document.getElementById('dashboard').style.display = 'flex';
         
         const email = user.email.toLowerCase();
-        // Custom branch routing verification based on configuration logic template 
         if (email.includes('murlipura1')) currentBranch = "Murlipura, 1 Number";
         else if (email.includes('vki17')) currentBranch = "VKI, 17 Number";
         else if (email.includes('lohamandi')) currentBranch = "VKI, Lohamandi";
@@ -251,7 +346,6 @@
       }
     });
 
-    // Authentication Submission handling
     document.getElementById('password-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('login-btn').click(); });
     document.getElementById('login-btn').addEventListener('click', async () => {
       const e = document.getElementById('email-input').value, p = document.getElementById('password-input').value, r = document.getElementById('remember-me').checked, msg = document.getElementById('error-msg');
@@ -259,131 +353,191 @@
         msg.style.display = 'none'; 
         await setPersistence(auth, r ? browserLocalPersistence : browserSessionPersistence); 
         await signInWithEmailAndPassword(auth, e, p); 
-      } 
-      catch (err) { 
-        msg.style.display = 'block'; 
-        msg.innerText = err.message; 
+      } catch (err) { 
+        msg.style.display = 'block'; msg.innerText = err.message; 
       }
     });
     
     document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
 
-    // Initialize Core QR Code Scanner Engine
     function initScanner() {
-      if (!html5Qrcode) {
-        // Use the core Html5Qrcode class instead of the Scanner wrapper
-        html5Qrcode = new Html5Qrcode("scanner-container");
-      }
+      if (!html5Qrcode) html5Qrcode = new Html5Qrcode("scanner-container");
       startCamera(currentFacingMode);
     }
 
-    // Start the camera feed with specific front/back setting
     function startCamera(facingMode) {
-      // Toggle mirror effect: Flip front camera, keep back camera normal
       const scannerContainer = document.getElementById('scanner-container');
-      if (facingMode === "user") {
-        scannerContainer.classList.add("mirrored");
-      } else {
-        scannerContainer.classList.remove("mirrored");
-      }
-
-      const config = { 
-        fps: 10, 
-        qrbox: { width: 250, height: 250 } 
-      };
+      if (facingMode === "user") scannerContainer.classList.add("mirrored");
+      else scannerContainer.classList.remove("mirrored");
 
       html5Qrcode.start(
-        { facingMode: facingMode }, // Tell it which camera to use
-        config,
+        { facingMode: facingMode },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
         onScanSuccess,
-        (errorMessage) => { 
-          // Ignore frequent scan errors (the library throws these constantly when no QR is in view)
-        }
+        (errorMessage) => { /* Ignore empty frames */ }
       ).catch((err) => {
-        console.error("Camera initialization error:", err);
         displayToast("Camera access denied or unavailable.", "error");
       });
     }
 
     function stopScanner() {
       if (html5Qrcode && html5Qrcode.isScanning) {
-        html5Qrcode.stop().then(() => {
-          html5Qrcode.clear();
-        }).catch(err => console.error(err));
+        html5Qrcode.stop().then(() => html5Qrcode.clear()).catch(err => console.error(err));
       }
     }
 
-    // Triggers when barcode library successfully captures and decodes a QR code
     async function onScanSuccess(decodedText) {
       if (isProcessingScan) return;
       
-      // Stop duplicates scanning sequentially in a rapid loop
       if (scannedQRCodes.includes(decodedText)) {
+        triggerHardwareFeedback(true);
         displayToast("Piece already scanned inside current bill!", "error");
         return;
       }
 
       isProcessingScan = true;
-      displayToast("Verifying piece code...", "primary");
 
       try {
-        // Query database directly checking structural state of individual physical barcode piece
         const pieceDocRef = doc(db, "inventory_pieces", decodedText);
         const pieceSnapshot = await getDoc(pieceDocRef);
 
         if (!pieceSnapshot.exists()) {
-          displayToast("Invalid QR: Barcode not found in database catalog.", "error");
-          isProcessingScan = false;
-          return;
+          triggerHardwareFeedback(true);
+          displayToast("Invalid QR: Barcode not found.", "error");
+          isProcessingScan = false; return;
         }
 
         const pieceData = pieceSnapshot.data();
 
-        // Security check: Guard rails prevent processing if item was already finalized in a historical transaction
         if (pieceData.status === "Sold") {
+          triggerHardwareFeedback(true);
           displayToast("Scanned Item Rejected: This individual piece was already sold!", "error");
-          isProcessingScan = false;
-          return;
+          isProcessingScan = false; return;
         }
 
         const productId = pieceData.productId;
         const productName = pieceData.productName || "Unknown Accessory";
         const productPrice = parseFloat(pieceData.price || 0);
+        const productCost = parseFloat(pieceData.costPrice || 0); // Lock historical cost for data integrity
 
-        // UI Smart Grouping Logic: If product exists, bump quantity rather than stacking new lines
         if (cart[productId]) {
           cart[productId].quantity += 1;
           cart[productId].subtotal += productPrice;
+          cart[productId].totalCost += productCost; 
         } else {
           cart[productId] = {
             name: productName,
             price: productPrice,
+            costPrice: productCost, 
             quantity: 1,
-            subtotal: productPrice
+            subtotal: productPrice,
+            totalCost: productCost
           };
         }
 
-        // Lock individual piece token identifier inside local runtime session
         scannedQRCodes.push(decodedText);
         updateCartUI();
+        
+        triggerHardwareFeedback(false);
         displayToast(`${productName} added to cart.`, "success");
 
       } catch (err) {
-        console.error(err);
+        triggerHardwareFeedback(true);
         displayToast("Error fetching item data.", "error");
       } finally {
-        // Delay resetting scanning availability state briefly to create a comfortable pace for physical workflows
         setTimeout(() => { isProcessingScan = false; }, 1500);
       }
     }
 
-    // Refresh dynamic frontend UI components containing active cart table information
+    // --- DISCOUNT REQUEST ENGINE ---
+    document.getElementById('btn-request-discount').addEventListener('click', async () => {
+      const discountVal = parseFloat(document.getElementById('discount-input').value);
+      const staffSelect = document.getElementById('staff-select');
+      
+      if (!staffSelect.value) {
+        displayToast("Select your staff name first!", "error");
+        return;
+      }
+      if (!discountVal || discountVal <= 0) {
+        displayToast("Enter a valid discount amount.", "error");
+        return;
+      }
+
+      const btn = document.getElementById('btn-request-discount');
+      btn.innerText = "Waiting...";
+      btn.disabled = true;
+
+      try {
+        // Create a request in Firestore
+        const reqRef = await addDoc(collection(db, "discount_requests"), {
+          branch: currentBranch,
+          staffName: staffSelect.value,
+          requestedDiscount: discountVal,
+          status: "Pending",
+          timestamp: serverTimestamp()
+        });
+
+        displayToast("Discount sent to Admin for approval...", "primary");
+
+        // Listen for Admin response in real-time
+        activeDiscountRequestRef = onSnapshot(reqRef, (docSnap) => {
+          const data = docSnap.data();
+          if (data.status === "Approved") {
+            approvedDiscount = data.requestedDiscount;
+            document.getElementById('discount-row').style.display = 'flex';
+            document.getElementById('approved-discount-display').innerText = `-₹${approvedDiscount.toFixed(2)}`;
+            displayToast("Discount Approved!", "success");
+            updateCartUI();
+            btn.innerText = "Approved";
+            btn.disabled = false;
+            
+            if(activeDiscountRequestRef) activeDiscountRequestRef(); 
+          } else if (data.status === "Rejected") {
+            approvedDiscount = 0;
+            document.getElementById('discount-row').style.display = 'none';
+            displayToast("Discount Rejected by Admin.", "error");
+            btn.innerText = "Request Auth";
+            btn.disabled = false;
+            updateCartUI();
+            
+            if(activeDiscountRequestRef) activeDiscountRequestRef(); 
+          }
+        });
+      } catch (err) {
+        displayToast("Failed to request discount.", "error");
+        btn.innerText = "Request Auth";
+        btn.disabled = false;
+      }
+    });
+
+    // --- ROW REMOVAL ENGINE ---
+    window.removeProductFromCart = function(productId) {
+      if (!cart[productId]) return;
+      
+      // Remove ONE physical piece tag matching this Product SKU from the scanned codes array
+      const index = scannedQRCodes.findIndex(code => code.startsWith(productId));
+      if (index > -1) scannedQRCodes.splice(index, 1);
+      
+      // Decrement Cart Logic
+      if (cart[productId].quantity > 1) {
+          cart[productId].quantity -= 1;
+          cart[productId].subtotal -= cart[productId].price;
+          cart[productId].totalCost -= cart[productId].costPrice;
+      } else {
+          delete cart[productId];
+      }
+      
+      updateCartUI();
+      displayToast("Item removed from bill.", "primary");
+    };
+
     function updateCartUI() {
       const tbody = document.getElementById('cart-rows');
       const checkoutBtn = document.getElementById('btn-generate-bill');
       
       if (scannedQRCodes.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td></tr>`;
+        document.getElementById('bill-subtotal').innerText = "₹0.00";
         document.getElementById('bill-total').innerText = "₹0.00";
         checkoutBtn.disabled = true;
         return;
@@ -399,18 +553,24 @@
           <tr>
             <td>${item.name}</td>
             <td>₹${item.price.toFixed(2)}</td>
-            <td>${item.quantity}</td>
+            <td style="text-align: center; font-weight: 800;">${item.quantity}</td>
             <td>₹${item.subtotal.toFixed(2)}</td>
+            <td style="text-align: right;">
+              <button class="btn-delete-row" onclick="window.removeProductFromCart('${id}')">✕</button>
+            </td>
           </tr>
         `;
       }
 
       tbody.innerHTML = rowsHTML;
-      document.getElementById('bill-total').innerText = `₹${totalAmount.toFixed(2)}`;
+      document.getElementById('bill-subtotal').innerText = `₹${totalAmount.toFixed(2)}`;
+      
+      const finalAmount = totalAmount - approvedDiscount;
+      document.getElementById('bill-total').innerText = `₹${Math.max(0, finalAmount).toFixed(2)}`;
       checkoutBtn.disabled = false;
     }
 
-    // Complete customer transaction and update target item state variables
+    // --- ATOMIC TRANSACTION & THERMAL PRINT ---
     document.getElementById('btn-generate-bill').addEventListener('click', async () => {
       if (scannedQRCodes.length === 0) return;
 
@@ -419,7 +579,6 @@
       
       if (!selectedStaff) {
         displayToast("Please select your staff name first!", "error");
-        // Flash the select box red briefly to draw attention
         staffSelect.style.borderColor = "var(--danger)";
         setTimeout(() => staffSelect.style.borderColor = "var(--card-border)", 2000);
         return;
@@ -427,88 +586,124 @@
 
       const checkoutBtn = document.getElementById('btn-generate-bill');
       checkoutBtn.disabled = true;
-      displayToast("Processing transaction...", "primary");
+      checkoutBtn.innerHTML = "Processing Securely...";
+      
+      let finalTotal = parseFloat(document.getElementById('bill-total').innerText.replace('₹', ''));
+      let finalPieces = scannedQRCodes.length;
+      let billId = "";
 
       try {
-        const batch = writeBatch(db);
+        // Atomic transaction ensures absolute database lock & double-scan protection
+        await runTransaction(db, async (transaction) => {
+          
+          // 1. Double verification lock
+          for (const qrCode of scannedQRCodes) {
+            const pieceRef = doc(db, "inventory_pieces", qrCode);
+            const snapshot = await transaction.get(pieceRef);
+            
+            if (!snapshot.exists() || snapshot.data().status === "Sold") {
+              throw new Error(`Piece ${qrCode} was scanned by another branch!`);
+            }
+          }
 
-        // 1. Permanently update scanned unique piece statuses to 'Sold' so they reject future scanner attempts
-        scannedQRCodes.forEach((qrCode) => {
-          const pieceRef = doc(db, "inventory_pieces", qrCode);
-          batch.update(pieceRef, { 
-            status: "Sold",
-            soldAt: serverTimestamp(),
-            soldByBranch: currentBranch,
-            soldByStaff: selectedStaff
+          // 2. Perform updates
+          scannedQRCodes.forEach((qrCode) => {
+            const pieceRef = doc(db, "inventory_pieces", qrCode);
+            transaction.update(pieceRef, { 
+              status: "Sold",
+              soldAt: serverTimestamp(),
+              soldByBranch: currentBranch,
+              soldByStaff: selectedStaff
+            });
+          });
+
+          // 3. Document Bill
+          const newBillRef = doc(collection(db, "bills"));
+          billId = newBillRef.id;
+          transaction.set(newBillRef, {
+            branch: currentBranch,
+            staffName: selectedStaff,
+            timestamp: serverTimestamp(),
+            items: cart, // Successfully preserves Cost Price
+            totalPieces: finalPieces,
+            discountApplied: approvedDiscount,
+            totalPaid: Math.max(0, finalTotal)
           });
         });
 
-        // 2. Generate transaction invoice documentation data entry inside global database collection ledger
-        const newBillRef = doc(collection(db, "bills"));
-        batch.set(newBillRef, {
-          branch: currentBranch,
-          staffName: selectedStaff,
-          timestamp: serverTimestamp(),
-          items: cart,
-          totalPieces: scannedQRCodes.length,
-          totalPaid: parseFloat(document.getElementById('bill-total').innerText.replace('₹', ''))
-        });
+        // Setup the physical thermal receipt DOM
+        document.getElementById('rcpt-branch').innerText = currentBranch;
+        document.getElementById('rcpt-staff').innerText = `Cashier: ${selectedStaff}`;
+        document.getElementById('rcpt-date').innerText = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+        
+        let rcptRows = "";
+        for (const id in cart) {
+            const rcptItem = cart[id];
+            rcptRows += `<tr>
+                <td>${rcptItem.name}<br><small>@ ₹${rcptItem.price}</small></td>
+                <td style="text-align: center;">${rcptItem.quantity}</td>
+                <td style="text-align: right;">₹${rcptItem.subtotal.toFixed(2)}</td>
+            </tr>`;
+        }
+        document.getElementById('rcpt-items').innerHTML = rcptRows;
+        document.getElementById('rcpt-total-pieces').innerText = finalPieces;
+        
+        if(approvedDiscount > 0) {
+            document.getElementById('rcpt-discount-row').style.display = 'flex';
+            document.getElementById('rcpt-discount').innerText = `-₹${approvedDiscount.toFixed(2)}`;
+        } else {
+            document.getElementById('rcpt-discount-row').style.display = 'none';
+        }
+        
+        document.getElementById('rcpt-total-amount').innerText = `₹${Math.max(0, finalTotal).toFixed(2)}`;
+        document.getElementById('rcpt-id-tag').innerText = `Bill Ref: ${billId.slice(-6).toUpperCase()}`;
 
-        // Commit full transactional operation package as a singular secure database update event
-        await batch.commit();
-
+        // Trigger native hardware print logic
+        window.print();
+        
         displayToast("Invoice Generated Successfully!", "success");
         
-        // Reset local application state arrays on operational success
-        cart = {};
-        scannedQRCodes = [];
-        updateCartUI();
-        
-        // Reset staff selection for the next customer/transaction if preferred
+        // Reset state
+        cart = {}; 
+        scannedQRCodes = []; 
+        approvedDiscount = 0;
+        document.getElementById('discount-row').style.display = 'none';
+        document.getElementById('discount-input').value = "";
+        document.getElementById('btn-request-discount').innerText = "Request Auth";
+        updateCartUI(); 
         staffSelect.value = "";
 
       } catch (err) {
         console.error(err);
-        displayToast("Transactional Error. Please check connectivity.", "error");
+        displayToast(err.message || "Transactional Error.", "error");
+      } finally {
         checkoutBtn.disabled = false;
+        checkoutBtn.innerHTML = "Generate Bill & Print Receipt";
       }
     });
 
-    // Custom Camera Switching Logic
     document.getElementById('switch-camera-btn').addEventListener('click', () => {
-      // Toggle between front and back
       currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
-      
       if (html5Qrcode && html5Qrcode.isScanning) {
-        // If it's already running, stop the stream first, then restart with new camera
-        html5Qrcode.stop().then(() => {
-          startCamera(currentFacingMode);
-        }).catch(err => {
-          console.error("Error stopping camera to switch:", err);
-        });
+        html5Qrcode.stop().then(() => startCamera(currentFacingMode)).catch(err => console.error(err));
       } else {
-        // If it's not scanning (e.g., just booted up), just start it
         startCamera(currentFacingMode);
       }
     });
 
-    // UI Theme toggle logic handling
     const themeBtn = document.getElementById('theme-toggle');
     themeBtn.addEventListener('click', () => {
       const isLight = document.documentElement.classList.toggle('light-theme');
       localStorage.setItem('rj_theme', isLight ? 'light' : 'dark');
     });
 
-    // Password Visibility toggler element tracking adjustments
     const togglePasswordBtn = document.getElementById('toggle-password-btn');
     togglePasswordBtn.addEventListener('click', () => {
       const passInput = document.getElementById('password-input');
       if (passInput.type === 'password') {
-        passInput.type = 'text';
-        togglePasswordBtn.style.color = 'var(--primary)';
+        passInput.type = 'text'; togglePasswordBtn.style.color = 'var(--primary)';
       } else {
-        passInput.type = 'password';
-        togglePasswordBtn.style.color = 'var(--text-soft)';
+        passInput.type = 'password'; togglePasswordBtn.style.color = 'var(--text-soft)';
       }
     });
   </script>
