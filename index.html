@@ -61,6 +61,11 @@
     #theme-toggle { background: var(--input-bg); border: 1px solid var(--card-border); color: var(--text-soft); cursor: pointer; padding: 10px; border-radius: 12px; }
     .btn-secondary { background: transparent; border: 1px solid var(--card-border); color: var(--text-main); padding: 8px 16px; border-radius: 12px; cursor: pointer; font-weight: 600; }
 
+    /* New Mode Toggles */
+    .mode-toggles { display: flex; width: 100%; gap: 10px; margin-bottom: 16px; }
+    .mode-btn { flex: 1; padding: 14px; border-radius: 14px; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-soft); font-weight: 700; cursor: pointer; transition: 0.2s; }
+    .mode-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
     .main-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 24px; padding: 24px; width: 100%; position: relative; overflow: hidden; margin-bottom: 24px; }
     .card-border-top::after { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, var(--primary), #3b82f6); }
     
@@ -83,10 +88,15 @@
     .btn-action:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
     .btn-action:not(:disabled):hover { filter: brightness(1.1); transform: translateY(-2px); }
 
+    /* Audit specific UI */
+    #audit-section { display: none; text-align: center; }
+    .audit-stats { background: var(--input-bg); padding: 20px; border-radius: 16px; margin-bottom: 20px; border: 1px solid var(--card-border); }
+    .audit-stats h3 { font-size: 32px; color: var(--primary); margin: 10px 0; }
+
     #toast { visibility: hidden; min-width: 300px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 24px; position: fixed; z-index: 10000; bottom: 40px; left: 50%; transform: translate(-50%, 20px); font-size: 15px; font-weight: 600; color: var(--text-main); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.3s, transform 0.3s, visibility 0.3s; }
     #toast.show { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
 
-    /* PROFESSIONAL RECEIPT PRINTER (Thermal POS 80mm format) */
+    /* PROFESSIONAL RECEIPT PRINTER */
     #print-receipt { display: none; }
     @media print {
       body * { visibility: hidden; }
@@ -142,19 +152,22 @@
       </div>
     </div>
 
-    <!-- Active Cashier Select -->
-    <div class="main-card" style="padding: 16px 24px; margin-bottom: 16px;">
-      <label style="font-size: 12px; font-weight: 700; color: var(--text-soft); text-transform: uppercase;">Active Cashier</label>
-      <select id="staff-select" class="input-field" style="margin-bottom: 0; margin-top: 8px;">
+    <!-- Mode Toggles -->
+    <div class="mode-toggles">
+      <button id="mode-billing" class="mode-btn active">🛒 Billing Mode</button>
+      <button id="mode-audit" class="mode-btn">📦 Stock Audit</button>
+    </div>
+
+    <!-- Scanner Feed Card -->
+    <div class="main-card card-border-top">
+      <!-- Active Cashier Select -->
+      <select id="staff-select" class="input-field" style="margin-bottom: 16px;">
         <option value="" disabled selected>Tap to select your name...</option>
         <option value="Name 1">Name 1</option>
         <option value="Name 2">Name 2</option>
         <option value="Name 3">Name 3</option>
       </select>
-    </div>
 
-    <!-- Scanner Feed Card -->
-    <div class="main-card card-border-top">
       <button id="switch-camera-btn" class="btn-secondary" style="width: 100%; margin-bottom: 16px; display: flex; justify-content: center; align-items: center; gap: 8px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"/><path d="M9 22V12h6v10M2 10.6L12 2l10 8.6"/></svg>
         Switch Camera (Front/Back)
@@ -162,42 +175,27 @@
       <div id="scanner-container"></div>
     </div>
 
-    <!-- Active Cart Card -->
-    <div class="main-card">
+    <!-- Active Cart Card (Billing Mode) -->
+    <div class="main-card" id="billing-section">
       <div class="cart-section">
-        <div class="cart-title">
-          <span>Scanned Items</span>
-        </div>
+        <div class="cart-title"><span>Scanned Items</span></div>
         <table class="cart-table">
           <thead>
             <tr>
-              <th>Item Name</th>
-              <th>Price</th>
-              <th style="text-align: center;">Qty</th>
-              <th>Total</th>
-              <th></th>
+              <th>Item Name</th><th>Price</th><th style="text-align: center;">Qty</th><th>Total</th><th></th>
             </tr>
           </thead>
           <tbody id="cart-rows">
-            <tr>
-              <td colspan="5" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td>
-            </tr>
+            <tr><td colspan="5" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td></tr>
           </tbody>
         </table>
         
-        <div class="total-row">
-          <span>Bill Subtotal:</span>
-          <span id="bill-subtotal">₹0.00</span>
-        </div>
-
+        <div class="total-row"><span>Bill Subtotal:</span><span id="bill-subtotal">₹0.00</span></div>
         <div class="total-row" id="discount-row" style="display: none; color: var(--success); font-size: 16px;">
-          <span>Approved Discount:</span>
-          <span id="approved-discount-display">-₹0.00</span>
+          <span>Approved Discount:</span><span id="approved-discount-display">-₹0.00</span>
         </div>
-        
         <div class="total-row" style="background: transparent; border-top: 1px solid var(--card-border); border-radius: 0;">
-          <span>Final Total:</span>
-          <span id="bill-total">₹0.00</span>
+          <span>Final Total:</span><span id="bill-total">₹0.00</span>
         </div>
 
         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
@@ -210,27 +208,25 @@
         </button>
       </div>
     </div>
+
+    <!-- Audit Section (Audit Mode) -->
+    <div class="main-card" id="audit-section">
+      <div class="audit-stats">
+        <p style="color: var(--text-soft); font-weight: 600; text-transform: uppercase; font-size: 12px;">Audited by you today</p>
+        <h3 id="audit-counter">0</h3>
+        <p style="color: var(--success); font-weight: 500; font-size: 13px;">Instant Sync Active ✓</p>
+      </div>
+      <p style="color: var(--text-soft); font-size: 13px;">Just keep scanning. Items are marked automatically in the database. No submit needed.</p>
+    </div>
   </div>
 
   <!-- Hidden Printable Thermal Receipt Container -->
   <div id="print-receipt">
-    <div class="rcpt-header">
-      <h2>RJ Mobile</h2>
-      <p id="rcpt-branch"></p>
-      <p id="rcpt-staff"></p>
-      <p id="rcpt-date"></p>
-    </div>
+    <div class="rcpt-header"><h2>RJ Mobile</h2><p id="rcpt-branch"></p><p id="rcpt-staff"></p><p id="rcpt-date"></p></div>
     <div class="rcpt-divider"></div>
     <table class="rcpt-table">
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th style="text-align: center;">Qty</th>
-          <th style="text-align: right;">Total</th>
-        </tr>
-      </thead>
-      <tbody id="rcpt-items">
-      </tbody>
+      <thead><tr><th>Item</th><th style="text-align: center;">Qty</th><th style="text-align: right;">Total</th></tr></thead>
+      <tbody id="rcpt-items"></tbody>
     </table>
     <div class="rcpt-divider"></div>
     <div class="rcpt-totals">
@@ -239,16 +235,13 @@
       <div style="font-size: 18px; margin-top: 8px;"><span>Total:</span> <span id="rcpt-total-amount">₹0.00</span></div>
     </div>
     <div class="rcpt-divider"></div>
-    <div class="rcpt-footer">
-      Thank you for shopping with us!
-    </div>
+    <div class="rcpt-footer">Thank you for shopping with us!</div>
     <div class="rcpt-barcode" id="rcpt-id-tag"></div>
   </div>
 
   <script type="module">
     import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
-    // --- SUPABASE CONFIGURATION ---
     const SUPABASE_URL = 'https://upvhrarcbjfodzvohcpq.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwdmhyYXJjYmpmb2R6dm9oY3BxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzNTEzMDcsImV4cCI6MjA5OTkyNzMwN30.4kFdGZM2B24jRbHCoZKCd7TbSXRF-3wEWqH2I4V9Fj0';
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -262,6 +255,10 @@
     let approvedDiscount = 0;
     let activeDiscountChannel = null;
     let fallbackPollInterval = null; 
+
+    // New State for Mode & Audit
+    let currentAppMode = "billing"; // 'billing' or 'audit'
+    let myAuditCount = 0;
 
     // --- HARDWARE FEEDBACK ---
     function triggerHardwareFeedback(isError = false) {
@@ -291,15 +288,28 @@
       toast.timeout = setTimeout(() => { toast.className = "glass-effect"; }, 4000);
     }
 
+    // --- MODE TOGGLE LOGIC ---
+    document.getElementById('mode-billing').addEventListener('click', (e) => {
+        currentAppMode = 'billing';
+        e.target.classList.add('active'); document.getElementById('mode-audit').classList.remove('active');
+        document.getElementById('billing-section').style.display = 'block';
+        document.getElementById('audit-section').style.display = 'none';
+    });
+    
+    document.getElementById('mode-audit').addEventListener('click', (e) => {
+        currentAppMode = 'audit';
+        e.target.classList.add('active'); document.getElementById('mode-billing').classList.remove('active');
+        document.getElementById('billing-section').style.display = 'none';
+        document.getElementById('audit-section').style.display = 'block';
+    });
+
     // --- AUTHENTICATION STATE ---
     async function checkUser() {
         const { data: { session } } = await supabase.auth.getSession();
         handleAuthChange(session?.user);
     }
     
-    supabase.auth.onAuthStateChange((event, session) => {
-        handleAuthChange(session?.user);
-    });
+    supabase.auth.onAuthStateChange((event, session) => { handleAuthChange(session?.user); });
 
     function handleAuthChange(user) {
         document.getElementById('global-loader').style.display = 'none';
@@ -326,8 +336,6 @@
     }
     checkUser();
 
-    document.getElementById('password-input').addEventListener('keypress', (e) => { if(e.key === 'Enter') document.getElementById('login-btn').click(); });
-    
     document.getElementById('login-btn').addEventListener('click', async () => {
       const e = document.getElementById('email-input').value, p = document.getElementById('password-input').value, msg = document.getElementById('error-msg');
       msg.style.display = 'none'; 
@@ -355,34 +363,61 @@
 
     async function onScanSuccess(decodedText) {
       if (isProcessingScan) return;
-      if (scannedQRCodes.includes(decodedText)) { triggerHardwareFeedback(true); displayToast("Piece already scanned inside current bill!", "error"); return; }
+      
+      if (currentAppMode === 'billing' && scannedQRCodes.includes(decodedText)) { 
+          triggerHardwareFeedback(true); displayToast("Piece already scanned inside current bill!", "error"); return; 
+      }
+      
       isProcessingScan = true;
 
       try {
         const { data: pieceData, error } = await supabase.from('inventory_pieces').select('*').eq('id', decodedText).single();
 
-        if (error || !pieceData) { triggerHardwareFeedback(true); displayToast("Invalid QR: Barcode not found.", "error"); isProcessingScan = false; return; }
-        if (pieceData.status === "Sold") { triggerHardwareFeedback(true); displayToast("Rejected: This piece was already sold!", "error"); isProcessingScan = false; return; }
+        if (error || !pieceData) { triggerHardwareFeedback(true); displayToast("Invalid QR: Barcode not found.", "error"); return; }
+        if (pieceData.status === "Sold") { triggerHardwareFeedback(true); displayToast("Rejected: This piece was already sold!", "error"); return; }
 
-        const productId = pieceData.product_id;
-        const productName = pieceData.product_name || "Unknown Accessory";
-        const productPrice = parseFloat(pieceData.price || 0);
-        const productCost = parseFloat(pieceData.cost_price || 0);
+        if (currentAppMode === 'audit') {
+            // === SMART AUDIT LOGIC ===
+            const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+            
+            if (pieceData.last_audited_at) {
+                const auditDate = new Date(pieceData.last_audited_at);
+                if (auditDate >= todayStart) {
+                    triggerHardwareFeedback(true); displayToast("Already audited by someone today!", "primary"); return;
+                }
+            }
 
-        if (cart[productId]) {
-          cart[productId].quantity += 1; cart[productId].subtotal += productPrice; cart[productId].totalCost += productCost; 
+            // Update instantly in DB
+            const { error: updateError } = await supabase.from('inventory_pieces').update({ last_audited_at: new Date().toISOString() }).eq('id', decodedText);
+            if(updateError) throw updateError;
+
+            myAuditCount++;
+            document.getElementById('audit-counter').innerText = myAuditCount;
+            triggerHardwareFeedback(false);
+            displayToast(`${pieceData.product_name} audited!`, "success");
+
         } else {
-          cart[productId] = { name: productName, price: productPrice, costPrice: productCost, quantity: 1, subtotal: productPrice, totalCost: productCost };
-        }
+            // === NORMAL BILLING LOGIC ===
+            const productId = pieceData.product_id;
+            const productName = pieceData.product_name || "Unknown Accessory";
+            const productPrice = parseFloat(pieceData.price || 0);
+            const productCost = parseFloat(pieceData.cost_price || 0);
 
-        scannedQRCodes.push(decodedText);
-        updateCartUI();
-        triggerHardwareFeedback(false); displayToast(`${productName} added to cart.`, "success");
+            if (cart[productId]) {
+              cart[productId].quantity += 1; cart[productId].subtotal += productPrice; cart[productId].totalCost += productCost; 
+            } else {
+              cart[productId] = { name: productName, price: productPrice, costPrice: productCost, quantity: 1, subtotal: productPrice, totalCost: productCost };
+            }
+
+            scannedQRCodes.push(decodedText);
+            updateCartUI();
+            triggerHardwareFeedback(false); displayToast(`${productName} added to cart.`, "success");
+        }
 
       } catch (err) {
         triggerHardwareFeedback(true); displayToast("Error fetching item data.", "error");
       } finally {
-        setTimeout(() => { isProcessingScan = false; }, 1500);
+        setTimeout(() => { isProcessingScan = false; }, 1200); // slightly faster reset for audits
       }
     }
 
@@ -526,4 +561,4 @@
     });
   </script>
 </body>
-</html>
+</html>s
