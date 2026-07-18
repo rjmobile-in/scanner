@@ -164,9 +164,17 @@
     <!-- Scanner Feed Card -->
     <div class="main-card card-border-top">
       <!-- Active Cashier Select -->
-      <select id="staff-select" class="input-field" style="margin-bottom: 16px;">
+      <select id="staff-select" class="input-field" style="margin-bottom: 8px;">
         <option value="" disabled selected>Tap to select your name...</option>
       </select>
+
+      <!-- STAFF ATTENDANCE MODULE -->
+      <div id="attendance-controls" style="display: none; gap: 10px; margin-bottom: 8px;">
+        <button id="btn-punch-in" class="btn-action btn-in" style="flex: 1; padding: 12px; font-size: 14px; box-shadow: none;">🟢 Punch In</button>
+        <button id="btn-punch-out" class="btn-action" style="flex: 1; padding: 12px; font-size: 14px; background: var(--danger); box-shadow: none;">🔴 Punch Out</button>
+      </div>
+      <div id="attendance-status-msg" style="text-align: center; font-size: 13px; font-weight: 600; color: var(--text-soft); margin-bottom: 16px; display: none;"></div>
+      <!-- END ATTENDANCE MODULE -->
 
       <button id="switch-camera-btn" class="btn-secondary" style="width: 100%; margin-bottom: 16px; display: flex; justify-content: center; align-items: center; gap: 8px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"/><path d="M9 22V12h6v10M2 10.6L12 2l10 8.6"/></svg>
@@ -262,6 +270,36 @@
     let masterOffers = [];
     let masterItems = [];
 
+    // --- UTILITIES FOR ATTENDANCE ---
+    function getTodayDateStr() {
+      const tzOffset = (new Date()).getTimezoneOffset() * 60000;
+      return (new Date(Date.now() - tzOffset)).toISOString().split('T')[0]; // Strictly YYYY-MM-DD
+    }
+
+    function updateAttendanceUI(staffName) {
+      const controls = document.getElementById('attendance-controls');
+      const msg = document.getElementById('attendance-status-msg');
+      if (!staffName) { controls.style.display = 'none'; msg.style.display = 'none'; return; }
+
+      controls.style.display = 'flex'; msg.style.display = 'block';
+      const today = getTodayDateStr();
+      const record = JSON.parse(localStorage.getItem(`attendance_${today}_${staffName}`)) || { in: false, out: false };
+
+      const btnIn = document.getElementById('btn-punch-in');
+      const btnOut = document.getElementById('btn-punch-out');
+
+      if (!record.in) {
+        btnIn.disabled = false; btnOut.disabled = true;
+        msg.innerText = "Status: Not punched in today."; msg.style.color = "var(--text-soft)";
+      } else if (record.in && !record.out) {
+        btnIn.disabled = true; btnOut.disabled = false;
+        msg.innerText = `Status: Punched IN at ${record.inTime}`; msg.style.color = "var(--success)";
+      } else {
+        btnIn.disabled = true; btnOut.disabled = true;
+        msg.innerText = `Status: Shift Completed (Out at ${record.outTime})`; msg.style.color = "var(--danger)";
+      }
+    }
+
     // --- HARDWARE FEEDBACK ---
     function triggerHardwareFeedback(isError = false) {
       if (navigator.vibrate) navigator.vibrate(isError ? [100, 50, 100] : 60);
@@ -289,6 +327,41 @@
       if (toast.timeout) clearTimeout(toast.timeout);
       toast.timeout = setTimeout(() => { toast.className = "glass-effect"; }, 4000);
     }
+
+    // --- ATTENDANCE BUTTON EVENTS ---
+    document.getElementById('staff-select').addEventListener('change', (e) => {
+        updateAttendanceUI(e.target.value);
+    });
+
+    document.getElementById('btn-punch-in').addEventListener('click', async () => {
+      const staffName = document.getElementById('staff-select').value;
+      if (!staffName) return;
+      const today = getTodayDateStr();
+      const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
+      // Save to Supabase (Gracefully handles failure if table isn't created yet)
+      try { await supabase.from('staff_attendance').insert({ staff_name: staffName, branch: currentBranch, date: today, punch_in: new Date().toISOString() }); } catch(e) {}
+
+      localStorage.setItem(`attendance_${today}_${staffName}`, JSON.stringify({ in: true, out: false, inTime: time }));
+      displayToast(`Punched IN successfully!`, "success");
+      updateAttendanceUI(staffName);
+    });
+
+    document.getElementById('btn-punch-out').addEventListener('click', async () => {
+      const staffName = document.getElementById('staff-select').value;
+      if (!staffName) return;
+      const today = getTodayDateStr();
+      const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      let record = JSON.parse(localStorage.getItem(`attendance_${today}_${staffName}`));
+      if (!record) return;
+
+      try { await supabase.from('staff_attendance').update({ punch_out: new Date().toISOString() }).eq('staff_name', staffName).eq('date', today); } catch(e) {}
+
+      record.out = true; record.outTime = time;
+      localStorage.setItem(`attendance_${today}_${staffName}`, JSON.stringify(record));
+      displayToast(`Punched OUT successfully!`, "success");
+      updateAttendanceUI(staffName);
+    });
 
     // --- MODE TOGGLE LOGIC ---
     document.getElementById('mode-billing').addEventListener('click', (e) => {
@@ -337,6 +410,7 @@
             if (sData) {
                 document.getElementById('staff-select').innerHTML = `<option value="" disabled selected>Tap to select your name...</option>` + 
                 sData.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+                updateAttendanceUI(''); // Reset UI
             }
             
             const { data: iData } = await supabase.from('items_directory').select('*');
@@ -384,6 +458,16 @@
     async function onScanSuccess(decodedText) {
       if (isProcessingScan) return;
       
+      // Attendance Guard Check
+      const selectedStaff = document.getElementById('staff-select').value;
+      if (!selectedStaff) { triggerHardwareFeedback(true); displayToast("Select your name and Punch IN first!", "error"); return; }
+      
+      const todayStr = getTodayDateStr();
+      const attRecord = JSON.parse(localStorage.getItem(`attendance_${todayStr}_${selectedStaff}`)) || { in: false, out: false };
+      
+      if (!attRecord.in) { triggerHardwareFeedback(true); displayToast(`Please Punch IN first, ${selectedStaff}!`, "error"); return; }
+      if (attRecord.out) { triggerHardwareFeedback(true); displayToast(`Your shift is marked as OUT today.`, "error"); return; }
+      
       if (currentAppMode === 'billing' && scannedQRCodes.includes(decodedText)) { 
           triggerHardwareFeedback(true); displayToast("Piece already scanned inside current bill!", "error"); return; 
       }
@@ -397,43 +481,29 @@
         if (pieceData.status === "Sold") { triggerHardwareFeedback(true); displayToast("Rejected: This piece was already sold!", "error"); return; }
 
         if (currentAppMode === 'audit') {
-            // === SMART AUDIT LOGIC ===
             const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-            
             if (pieceData.last_audited_at) {
                 const auditDate = new Date(pieceData.last_audited_at);
-                if (auditDate >= todayStart) {
-                    triggerHardwareFeedback(true); displayToast("Already audited by someone today!", "primary"); return;
-                }
+                if (auditDate >= todayStart) { triggerHardwareFeedback(true); displayToast("Already audited by someone today!", "primary"); return; }
             }
 
             const { error: updateError } = await supabase.from('inventory_pieces').update({ last_audited_at: new Date().toISOString() }).eq('id', decodedText);
             if(updateError) throw updateError;
 
-            myAuditCount++;
-            document.getElementById('audit-counter').innerText = myAuditCount;
-            triggerHardwareFeedback(false);
-            displayToast(`${pieceData.product_name} audited!`, "success");
-
+            myAuditCount++; document.getElementById('audit-counter').innerText = myAuditCount;
+            triggerHardwareFeedback(false); displayToast(`${pieceData.product_name} audited!`, "success");
         } else {
-            // === NORMAL BILLING WITH SMART OFFERS ===
             const productId = pieceData.product_id;
             const productName = pieceData.product_name || "Unknown Accessory";
             let productPrice = parseFloat(pieceData.price || 0);
             const productCost = parseFloat(pieceData.cost_price || 0);
             
-            let hasOffer = false;
-            let freeItemTriggered = null;
-
-            // Check if item has active offer
+            let hasOffer = false; let freeItemTriggered = null;
             const activeOffer = masterOffers.find(o => o.target_item_sku === productId);
             if (activeOffer) {
                 hasOffer = true;
-                if (activeOffer.offer_type === 'discount') {
-                    productPrice = parseFloat(activeOffer.new_price);
-                } else if (activeOffer.offer_type === 'bogo') {
-                    freeItemTriggered = activeOffer.free_item_sku;
-                }
+                if (activeOffer.offer_type === 'discount') { productPrice = parseFloat(activeOffer.new_price); } 
+                else if (activeOffer.offer_type === 'bogo') { freeItemTriggered = activeOffer.free_item_sku; }
             }
 
             if (cart[productId]) {
@@ -441,38 +511,27 @@
             } else {
               let displayName = productName;
               if (hasOffer && activeOffer.offer_type === 'discount') displayName += ' <span class="badge-promo">OFFER</span>';
-              
               cart[productId] = { name: displayName, price: productPrice, costPrice: productCost, quantity: 1, subtotal: productPrice, totalCost: productCost };
             }
 
             scannedQRCodes.push(decodedText);
 
-            // Handle Free BOGO item logic
             if (freeItemTriggered) {
                 const freeItemData = masterItems.find(i => i.sku === freeItemTriggered);
                 const freeName = freeItemData ? freeItemData.name : "Promo Item";
                 const vId = 'FREE-' + freeItemTriggered;
                 
                 if (cart[vId]) { cart[vId].quantity += 1; } 
-                else {
-                    cart[vId] = { name: freeName + ' <span class="badge-promo">FREE</span>', price: 0, costPrice: 0, quantity: 1, subtotal: 0, totalCost: 0, isVirtual: true };
-                }
+                else { cart[vId] = { name: freeName + ' <span class="badge-promo">FREE</span>', price: 0, costPrice: 0, quantity: 1, subtotal: 0, totalCost: 0, isVirtual: true }; }
                 displayToast(`Offer Applied! FREE ${freeName} added.`, "success");
-            } else if (hasOffer) {
-                displayToast(`Discount Offer Applied!`, "success");
-            } else {
-                displayToast(`${productName} added to cart.`, "success");
-            }
+            } else if (hasOffer) { displayToast(`Discount Offer Applied!`, "success"); } 
+            else { displayToast(`${productName} added to cart.`, "success"); }
 
-            updateCartUI();
-            triggerHardwareFeedback(false);
+            updateCartUI(); triggerHardwareFeedback(false);
         }
 
-      } catch (err) {
-        triggerHardwareFeedback(true); displayToast("Error fetching item data.", "error");
-      } finally {
-        setTimeout(() => { isProcessingScan = false; }, 1200);
-      }
+      } catch (err) { triggerHardwareFeedback(true); displayToast("Error fetching item data.", "error"); } 
+      finally { setTimeout(() => { isProcessingScan = false; }, 1200); }
     }
 
     // --- DISCOUNT REQUEST ENGINE ---
@@ -486,8 +545,7 @@
             if (activeDiscountChannel) supabase.removeChannel(activeDiscountChannel);
             if (fallbackPollInterval) clearInterval(fallbackPollInterval);
         } else if (updatedData.status === "Rejected") {
-            approvedDiscount = 0;
-            document.getElementById('discount-row').style.display = 'none';
+            approvedDiscount = 0; document.getElementById('discount-row').style.display = 'none';
             displayToast("Discount Rejected by Admin.", "error");
             updateCartUI(); btn.innerText = "Request Auth"; btn.disabled = false;
             if (activeDiscountChannel) supabase.removeChannel(activeDiscountChannel);
@@ -506,7 +564,6 @@
       let currentSubtotal = 0; let itemsSummary = [];
       for (const id in cart) { 
           const item = cart[id]; currentSubtotal += item.subtotal; 
-          // Regex used to strip the HTML span tag (badge-promo) for DB clarity
           itemsSummary.push(`${item.name.replace(/<[^>]*>?/gm, '')} (x${item.quantity})`); 
       }
 
@@ -514,13 +571,8 @@
 
       try {
         const { data, error } = await supabase.from('discount_requests').insert({
-          branch: currentBranch,
-          staff_name: staffSelect.value,
-          requested_discount: discountVal,
-          bill_subtotal: currentSubtotal,
-          total_pieces: scannedQRCodes.length,
-          items_list: itemsSummary.join(', '),
-          status: "Pending"
+          branch: currentBranch, staff_name: staffSelect.value, requested_discount: discountVal,
+          bill_subtotal: currentSubtotal, total_pieces: scannedQRCodes.length, items_list: itemsSummary.join(', '), status: "Pending"
         }).select().single();
 
         if (error) throw error;
@@ -534,9 +586,7 @@
         if (fallbackPollInterval) clearInterval(fallbackPollInterval);
         fallbackPollInterval = setInterval(async () => {
             const { data: pollData } = await supabase.from('discount_requests').select('status, requested_discount').eq('id', data.id).single();
-            if (pollData && pollData.status !== "Pending") {
-                processDiscountUpdate(pollData, btn);
-            }
+            if (pollData && pollData.status !== "Pending") { processDiscountUpdate(pollData, btn); }
         }, 3000);
           
       } catch (err) { displayToast("Failed to request discount.", "error"); btn.innerText = "Request Auth"; btn.disabled = false; }
@@ -544,8 +594,6 @@
 
     window.removeProductFromCart = function(productId) {
       if (!cart[productId]) return;
-      
-      // If it's a real item, remove one instance of it from scanned array
       if (!cart[productId].isVirtual) {
           const index = scannedQRCodes.findIndex(code => code.startsWith(productId));
           if (index > -1) scannedQRCodes.splice(index, 1);
@@ -589,7 +637,6 @@
       for (const key in cart) { totalPhysicalItemsInBill += cart[key].quantity; }
 
       try {
-        // Step 1: Update real inventory status for items that actually have QR codes
         if (scannedQRCodes.length > 0) {
             const { data: verificationData, error: verifyError } = await supabase.from('inventory_pieces').select('id, status').in('id', scannedQRCodes);
             if(verifyError) throw new Error("Could not verify items.");
@@ -599,13 +646,12 @@
             if(updateError) throw updateError;
         }
 
-        // Step 2: Push Bill to Ledger (It saves the `cart` JSON, so reports capture free items perfectly)
         const { data: newBillData, error: billError } = await supabase.from('bills').insert({
             branch: currentBranch, staff_name: selectedStaff, items: cart, total_pieces: totalPhysicalItemsInBill, discount_applied: approvedDiscount, total_paid: Math.max(0, finalTotal)
         }).select('id').single();
         if(billError) throw billError;
 
-        // Step 3: Receipt Config
+        // Receipt Config
         document.getElementById('rcpt-branch').innerText = currentBranch; document.getElementById('rcpt-staff').innerText = `Cashier: ${selectedStaff}`; document.getElementById('rcpt-date').innerText = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
         
         let rcptRows = ""; 
@@ -623,7 +669,6 @@
 
         window.print(); displayToast("Invoice Generated Successfully!", "success");
         
-        // Reset Logic
         cart = {}; scannedQRCodes = []; approvedDiscount = 0; document.getElementById('discount-row').style.display = 'none'; document.getElementById('discount-input').value = ""; document.getElementById('btn-request-discount').innerText = "Request Auth"; updateCartUI(); staffSelect.value = "";
 
       } catch (err) { displayToast(err.message || "Transactional Error.", "error"); } finally { checkoutBtn.disabled = false; checkoutBtn.innerHTML = "Generate Bill & Print Receipt"; }
