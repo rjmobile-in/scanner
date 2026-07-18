@@ -454,6 +454,12 @@
       const discountVal = parseFloat(document.getElementById('discount-input').value);
       const staffSelect = document.getElementById('staff-select');
       
+      // 1. Prevent request if cart is empty
+      if (scannedQRCodes.length === 0) {
+        displayToast("Cart is empty! Scan items first.", "error");
+        return;
+      }
+      
       if (!staffSelect.value) {
         displayToast("Select your staff name first!", "error");
         return;
@@ -463,16 +469,28 @@
         return;
       }
 
+      // 2. Gather current bill details
+      let currentSubtotal = 0;
+      let itemsSummary = [];
+      for (const id in cart) {
+        const item = cart[id];
+        currentSubtotal += item.subtotal;
+        itemsSummary.push(`${item.name} (x${item.quantity})`);
+      }
+
       const btn = document.getElementById('btn-request-discount');
       btn.innerText = "Waiting...";
       btn.disabled = true;
 
       try {
-        // Create a request in Firestore
+        // 3. Send bill details along with the request
         const reqRef = await addDoc(collection(db, "discount_requests"), {
           branch: currentBranch,
           staffName: staffSelect.value,
           requestedDiscount: discountVal,
+          billSubtotal: currentSubtotal,           // NEW: Send subtotal
+          totalPieces: scannedQRCodes.length,      // NEW: Send piece count
+          itemsList: itemsSummary.join(', '),      // NEW: Send list of items
           status: "Pending",
           timestamp: serverTimestamp()
         });
