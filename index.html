@@ -116,10 +116,15 @@
       </div>
     </div>
 
-    <!-- Active Cashier Select -->
+    <!-- Active Cashier Select (MODIFIED TO ADD SEARCH BAR) -->
     <div class="main-card card-border-top" style="padding: 16px 24px; margin-bottom: 16px;">
       <label style="font-size: 12px; font-weight: 700; color: var(--text-soft); text-transform: uppercase;">Active Employee</label>
-      <select id="staff-select" class="input-field" style="margin-bottom: 0; margin-top: 8px;">
+      
+      <!-- NEW: Search Input Field -->
+      <input type="text" id="staff-search" class="input-field" placeholder="🔍 Search by name..." style="margin-top: 8px; margin-bottom: 8px; padding: 12px 16px; cursor: text;" disabled />
+      
+      <!-- EXISTING: Dropdown List -->
+      <select id="staff-select" class="input-field" style="margin-bottom: 0;">
         <option value="" disabled selected>Tap to select your name...</option>
       </select>
     </div>
@@ -156,6 +161,7 @@
     let currentBranch = ""; 
     let cameraActive = false;
     let isProcessing = false;
+    let allStaffList = []; // NEW: Variable to hold all staff members for searching
     
     const video = document.getElementById('video');
     const flashOverlay = document.getElementById('flash-overlay');
@@ -214,18 +220,17 @@
             if (allowedIp.trim() !== "") {
                 try {
                     displayToast("Verifying Network Security...", "primary");
-                    // Fetch current internet IP of the terminal
                     const ipRes = await fetch('https://api.ipify.org?format=json');
                     const ipData = await ipRes.json();
                     const currentIp = ipData.ip;
                     
                     if (currentIp !== allowedIp.trim()) {
-                        // IP does not match - BLOCK ACCESS
                         document.getElementById('detected-branch-display').innerHTML = `${currentBranch} <span style="color:var(--danger)">[NETWORK BLOCKED]</span>`;
                         document.getElementById('staff-select').disabled = true;
+                        document.getElementById('staff-search').disabled = true;
                         document.getElementById('staff-select').innerHTML = `<option>Access Denied: Connect to Branch Wi-Fi</option>`;
                         displayToast("Security Alert: Invalid Wi-Fi Network.", "error");
-                        return; // Stop execution here (Camera won't start, logs blocked)
+                        return;
                     } else {
                         displayToast("Network Secured.", "success");
                     }
@@ -239,9 +244,14 @@
             // 3. If IP matches (or no IP lock is set), load staff and camera
             const { data: sData } = await supabase.from('staff_directory').select('name').order('name');
             if (sData) {
+                // Save complete staff list for local searching
+                allStaffList = sData.map(s => s.name);
+                
                 document.getElementById('staff-select').disabled = false;
-                document.getElementById('staff-select').innerHTML = `<option value="" disabled selected>Tap to select your name...</option>` + 
-                sData.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+                document.getElementById('staff-search').disabled = false;
+                
+                // Populate the dropdown initially
+                renderStaffDropdown(allStaffList);
             }
             
             if (!cameraActive) {
@@ -256,6 +266,26 @@
         }
     }
     checkUser();
+
+    // --- SEARCH / FILTER LOGIC ---
+    function renderStaffDropdown(list) {
+      document.getElementById('staff-select').innerHTML = `<option value="" disabled selected>Tap to select your name...</option>` + 
+      list.map(name => `<option value="${name}">${name}</option>`).join('');
+    }
+
+    document.getElementById('staff-search').addEventListener('input', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        
+        // Filter the globally stored staff array
+        const filteredList = allStaffList.filter(name => name.toLowerCase().includes(searchTerm));
+        
+        // Update the select dropdown with filtered results
+        renderStaffDropdown(filteredList);
+
+        // Reset check-in/out buttons because selection was cleared during search
+        btnIn.disabled = true;
+        btnOut.disabled = true;
+    });
 
     document.getElementById('login-btn').addEventListener('click', async () => {
       const e = document.getElementById('email-input').value, p = document.getElementById('password-input').value, msg = document.getElementById('error-msg');
@@ -402,7 +432,9 @@
         
         displayToast(`Success: ${targetAction} verified!`, "success");
         
-        // Reset Dropdown & Lock Buttons instantly after successful log
+        // Reset Search, Dropdown & Lock Buttons instantly after successful log
+        document.getElementById('staff-search').value = ""; 
+        renderStaffDropdown(allStaffList); // Restore full list
         document.getElementById('staff-select').value = ""; 
         btnIn.disabled = true;
         btnOut.disabled = true;
@@ -417,7 +449,7 @@
     }
 
     document.getElementById('btn-clock-in').addEventListener('click', () => logAttendance('Clock In'));
-   document.getElementById('btn-clock-out').addEventListener('click', () => logAttendance('Clock Out'));
+    document.getElementById('btn-clock-out').addEventListener('click', () => logAttendance('Clock Out'));
 
     document.getElementById('theme-toggle').addEventListener('click', () => { 
         const isLight = document.documentElement.classList.toggle('light-theme'); 
