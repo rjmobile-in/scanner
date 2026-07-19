@@ -575,7 +575,8 @@
 
             // Apply the offer `maxApplies` times
             if(maxApplies > 0) {
-                if(offer.offer_type === 'bogo') {
+                
+                if(offer.offer_type === 'bogo' || offer.offer_type === 'combo') {
                      let freebies = offer.free_items || [];
                      if(!freebies.length && offer.free_item_sku) freebies = [{sku: offer.free_item_sku, qty: 1}];
                      
@@ -595,7 +596,9 @@
                                };
                           }
                      });
-                } else if(offer.offer_type === 'discount') {
+                } 
+                
+                if(offer.offer_type === 'discount' || offer.offer_type === 'combo') {
                      let newPrice = parseFloat(offer.new_price || 0);
                      let discountPerBundle = bundleRegularValue - newPrice;
                      if(discountPerBundle > 0) {
