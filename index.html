@@ -66,7 +66,7 @@
     .mode-btn { flex: 1; padding: 14px; border-radius: 14px; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-soft); font-weight: 700; cursor: pointer; transition: 0.2s; }
     .mode-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
-    .main-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 24px; padding: 24px; width: 100%; position: relative; overflow: visible; /* Changed from hidden for dropdown */ margin-bottom: 24px; }
+    .main-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 24px; padding: 24px; width: 100%; position: relative; overflow: visible; margin-bottom: 24px; }
     .card-border-top::after { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, var(--primary), #3b82f6); border-radius: 24px 24px 0 0; }
     
     /* CUSTOM SEARCHABLE DROPDOWN CSS */
@@ -111,7 +111,7 @@
     #toast.show { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
     
     /* Promotional Badges for Offers */
-    .badge-promo { background: var(--warning-alpha); color: var(--warning); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px; display: inline-block; vertical-align: middle;}
+    .badge-promo { background: var(--primary-alpha); color: var(--primary); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px; display: inline-block; vertical-align: middle;}
 
     /* PROFESSIONAL RECEIPT PRINTER */
     #print-receipt { display: none; }
@@ -191,7 +191,6 @@
           </div>
         </div>
       </div>
-      <!-- Hidden native select keeps existing logic working flawlessly -->
       <select id="staff-select" style="display:none;"></select>
 
       <button id="switch-camera-btn" class="btn-secondary" style="width: 100%; margin-bottom: 16px; display: flex; justify-content: center; align-items: center; gap: 8px;">
@@ -217,15 +216,22 @@
         </table>
         
         <div class="total-row"><span>Bill Subtotal:</span><span id="bill-subtotal">₹0.00</span></div>
+        
+        <!-- AUTO PROMO DISCOUNT ROW -->
+        <div class="total-row" id="auto-promo-row" style="display: none; color: var(--primary); font-size: 16px; padding-top: 8px;">
+          <span>Auto Promo Savings:</span><span id="auto-promo-display">-₹0.00</span>
+        </div>
+
         <div class="total-row" id="discount-row" style="display: none; color: var(--success); font-size: 16px;">
           <span>Approved Discount:</span><span id="approved-discount-display">-₹0.00</span>
         </div>
+        
         <div class="total-row" style="background: transparent; border-top: 1px solid var(--card-border); border-radius: 0;">
           <span>Final Total:</span><span id="bill-total">₹0.00</span>
         </div>
 
         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-          <input type="number" id="discount-input" class="input-field" placeholder="Request Discount (₹)" style="margin-bottom: 0;" />
+          <input type="number" id="discount-input" class="input-field" placeholder="Request Additional (₹)" style="margin-bottom: 0;" />
           <button id="btn-request-discount" class="btn-secondary" style="white-space: nowrap;">Request Auth</button>
         </div>
 
@@ -257,8 +263,9 @@
     <div class="rcpt-divider"></div>
     <div class="rcpt-totals">
       <div><span>Total Items:</span> <span id="rcpt-total-pieces">0</span></div>
-      <div id="rcpt-discount-row" style="display: none; color: #555;"><span>Discount:</span> <span id="rcpt-discount">-₹0.00</span></div>
-      <div style="font-size: 18px; margin-top: 8px;"><span>Total:</span> <span id="rcpt-total-amount">₹0.00</span></div>
+      <div id="rcpt-promo-discount-row" style="display: none; color: #555;"><span>Promo Saved:</span> <span id="rcpt-promo">-₹0.00</span></div>
+      <div id="rcpt-discount-row" style="display: none; color: #555;"><span>Addt. Discount:</span> <span id="rcpt-discount">-₹0.00</span></div>
+      <div style="font-size: 18px; margin-top: 8px;"><span>Final Total:</span> <span id="rcpt-total-amount">₹0.00</span></div>
     </div>
     <div class="rcpt-divider"></div>
     <div class="rcpt-footer">Thank you for shopping with us!</div>
@@ -282,12 +289,16 @@
     let cart = {}; 
     let scannedQRCodes = []; 
     let isProcessingScan = false;
+    
+    // Discount Tracking
     let approvedDiscount = 0;
+    let autoAppliedDiscount = 0;
+    
     let activeDiscountChannel = null;
     let fallbackPollInterval = null; 
-
     let currentAppMode = "billing"; 
     let myAuditCount = 0;
+    
     let masterOffers = [];
     let masterItems = [];
 
@@ -359,12 +370,9 @@
             option.addEventListener('click', function() {
                 const val = this.getAttribute('data-value');
                 hiddenSelect.value = val;
-                
-                // Reset styling & set value
                 selectTrigger.innerHTML = val + ` <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`;
                 selectTrigger.classList.add('selected');
-                selectTrigger.style.borderColor = "var(--card-border)"; // Clear any error red borders
-
+                selectTrigger.style.borderColor = "var(--card-border)"; 
                 selectOptionsList.classList.remove('show');
                 selectTrigger.classList.remove('active');
             });
@@ -415,11 +423,9 @@
             // Sync Master Data
             const { data: sData } = await supabase.from('staff_directory').select('name').order('name');
             if (sData) {
-                // Populate native hidden select
                 hiddenSelect.innerHTML = `<option value="" disabled selected>Tap to select your name...</option>` + 
                 sData.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
                 
-                // Populate Custom Dropdown Menu
                 const customList = document.getElementById('staff-select-list');
                 customList.innerHTML = sData.map(s => `<div class="custom-select-option" data-value="${s.name}">${s.name}</div>`).join('');
                 setupCustomOptions();
@@ -484,7 +490,6 @@
 
         if (currentAppMode === 'audit') {
             const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-            
             if (pieceData.last_audited_at) {
                 const auditDate = new Date(pieceData.last_audited_at);
                 if (auditDate >= todayStart) {
@@ -501,53 +506,31 @@
             displayToast(`${pieceData.product_name} audited!`, "success");
 
         } else {
+            // BILLING MODE - Add Regular Item First
             const productId = pieceData.product_id;
             const productName = pieceData.product_name || "Unknown Accessory";
             let productPrice = parseFloat(pieceData.price || 0);
             const productCost = parseFloat(pieceData.cost_price || 0);
             
-            let hasOffer = false;
-            let freeItemTriggered = null;
-
-            const activeOffer = masterOffers.find(o => o.target_item_sku === productId);
-            if (activeOffer) {
-                hasOffer = true;
-                if (activeOffer.offer_type === 'discount') {
-                    productPrice = parseFloat(activeOffer.new_price);
-                } else if (activeOffer.offer_type === 'bogo') {
-                    freeItemTriggered = activeOffer.free_item_sku;
-                }
-            }
-
             if (cart[productId]) {
-              cart[productId].quantity += 1; cart[productId].subtotal += productPrice; cart[productId].totalCost += productCost; 
+              cart[productId].quantity += 1;
             } else {
-              let displayName = productName;
-              if (hasOffer && activeOffer.offer_type === 'discount') displayName += ' <span class="badge-promo">OFFER</span>';
-              
-              cart[productId] = { name: displayName, price: productPrice, costPrice: productCost, quantity: 1, subtotal: productPrice, totalCost: productCost };
+              cart[productId] = { 
+                  name: productName, 
+                  basePrice: productPrice, 
+                  costPrice: productCost, 
+                  quantity: 1, 
+                  isVirtualOffer: false 
+              };
             }
 
             scannedQRCodes.push(decodedText);
-
-            if (freeItemTriggered) {
-                const freeItemData = masterItems.find(i => i.sku === freeItemTriggered);
-                const freeName = freeItemData ? freeItemData.name : "Promo Item";
-                const vId = 'FREE-' + freeItemTriggered;
-                
-                if (cart[vId]) { cart[vId].quantity += 1; } 
-                else {
-                    cart[vId] = { name: freeName + ' <span class="badge-promo">FREE</span>', price: 0, costPrice: 0, quantity: 1, subtotal: 0, totalCost: 0, isVirtual: true };
-                }
-                displayToast(`Offer Applied! FREE ${freeName} added.`, "success");
-            } else if (hasOffer) {
-                displayToast(`Discount Offer Applied!`, "success");
-            } else {
-                displayToast(`${productName} added to cart.`, "success");
-            }
-
-            updateCartUI();
+            
+            // Re-evaluate entire cart against all Smart Offers
+            recalculateOffersAndCart();
+            
             triggerHardwareFeedback(false);
+            displayToast(`${productName} added to cart.`, "success");
         }
 
       } catch (err) {
@@ -556,6 +539,75 @@
         setTimeout(() => { isProcessingScan = false; }, 1200);
       }
     }
+
+    // --- SMART OFFERS EVALUATION ENGINE ---
+    function recalculateOffersAndCart() {
+        // 1. Remove all old virtual free gifts
+        Object.keys(cart).forEach(k => { if(cart[k].isVirtualOffer) delete cart[k]; });
+        autoAppliedDiscount = 0;
+        
+        // 2. Map current cart quantities for fast checking
+        let currentCartQtys = {};
+        for(let k in cart) {
+             currentCartQtys[k] = cart[k].quantity;
+        }
+
+        // 3. Loop through active offers and calculate applications
+        masterOffers.forEach(offer => {
+            let targets = offer.target_items || []; 
+            if(!targets.length && offer.target_item_sku) targets = [{sku: offer.target_item_sku, qty: 1}]; // Fallback for old single data
+            
+            if(targets.length === 0) return;
+
+            let maxApplies = Infinity;
+            let bundleRegularValue = 0;
+
+            for(let t of targets) {
+                let availQty = currentCartQtys[t.sku] || 0;
+                let possible = Math.floor(availQty / t.qty);
+                maxApplies = Math.min(maxApplies, possible);
+                
+                let itemData = masterItems.find(i => i.sku === t.sku);
+                if(itemData) {
+                     bundleRegularValue += (t.qty * parseFloat(itemData.selling_price || 0));
+                }
+            }
+
+            // Apply the offer `maxApplies` times
+            if(maxApplies > 0) {
+                if(offer.offer_type === 'bogo') {
+                     let freebies = offer.free_items || [];
+                     if(!freebies.length && offer.free_item_sku) freebies = [{sku: offer.free_item_sku, qty: 1}];
+                     
+                     freebies.forEach(f => {
+                          const freeData = masterItems.find(i => i.sku === f.sku);
+                          const freeName = freeData ? freeData.name : "Free Promo Item";
+                          const vId = 'OFFER-FREE-' + f.sku;
+                          
+                          if(cart[vId]) {
+                               cart[vId].quantity += (f.qty * maxApplies);
+                          } else {
+                               cart[vId] = {
+                                    name: freeName + ' <span class="badge-promo">FREE</span>',
+                                    basePrice: 0, costPrice: 0,
+                                    quantity: (f.qty * maxApplies),
+                                    isVirtualOffer: true
+                               };
+                          }
+                     });
+                } else if(offer.offer_type === 'discount') {
+                     let newPrice = parseFloat(offer.new_price || 0);
+                     let discountPerBundle = bundleRegularValue - newPrice;
+                     if(discountPerBundle > 0) {
+                          autoAppliedDiscount += (discountPerBundle * maxApplies);
+                     }
+                }
+            }
+        });
+        
+        updateCartUI();
+    }
+
 
     // --- DISCOUNT REQUEST ENGINE ---
     function processDiscountUpdate(updatedData, btn) {
@@ -585,10 +637,13 @@
       if (!selectedStaff) { displayToast("Select your staff name first!", "error"); selectTrigger.style.borderColor = "var(--danger)"; return; }
       if (!discountVal || discountVal <= 0) { displayToast("Enter a valid discount amount.", "error"); return; }
 
-      let currentSubtotal = 0; let itemsSummary = [];
+      let currentSubtotal = parseFloat(document.getElementById('bill-subtotal').innerText.replace('₹', ''));
+      
+      let itemsSummary = [];
       for (const id in cart) { 
-          const item = cart[id]; currentSubtotal += item.subtotal; 
-          itemsSummary.push(`${item.name.replace(/<[^>]*>?/gm, '')} (x${item.quantity})`); 
+          if(!cart[id].isVirtualOffer) {
+              itemsSummary.push(`${cart[id].name.replace(/<[^>]*>?/gm, '')} (x${cart[id].quantity})`); 
+          }
       }
 
       const btn = document.getElementById('btn-request-discount'); btn.innerText = "Waiting..."; btn.disabled = true;
@@ -626,32 +681,56 @@
     window.removeProductFromCart = function(productId) {
       if (!cart[productId]) return;
       
-      if (!cart[productId].isVirtual) {
-          const index = scannedQRCodes.findIndex(code => code.startsWith(productId));
-          if (index > -1) scannedQRCodes.splice(index, 1);
+      if (!cart[productId].isVirtualOffer) {
+          // Find and pop the latest scanned matching QR to preserve physics logic
+          for(let i = scannedQRCodes.length - 1; i >= 0; i--) {
+              if(scannedQRCodes[i].startsWith(productId)) {
+                  scannedQRCodes.splice(i, 1);
+                  break;
+              }
+          }
       }
       
       if (cart[productId].quantity > 1) {
-          cart[productId].quantity -= 1; cart[productId].subtotal -= cart[productId].price; cart[productId].totalCost -= cart[productId].costPrice;
+          cart[productId].quantity -= 1;
       } else { delete cart[productId]; }
       
-      updateCartUI(); displayToast("Item removed from bill.", "primary");
+      // Auto-recalculate offers to catch any broken targets
+      recalculateOffersAndCart(); 
+      displayToast("Item removed.", "primary");
     };
 
     function updateCartUI() {
       const tbody = document.getElementById('cart-rows'); const checkoutBtn = document.getElementById('btn-generate-bill');
       if (Object.keys(cart).length === 0) {
         tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-soft);">Ready to scan pieces...</td></tr>`;
-        document.getElementById('bill-subtotal').innerText = "₹0.00"; document.getElementById('bill-total').innerText = "₹0.00"; checkoutBtn.disabled = true; return;
+        document.getElementById('bill-subtotal').innerText = "₹0.00"; 
+        document.getElementById('bill-total').innerText = "₹0.00"; 
+        document.getElementById('auto-promo-row').style.display = 'none';
+        checkoutBtn.disabled = true; return;
       }
 
-      let rowsHTML = ""; let totalAmount = 0;
+      let rowsHTML = ""; let regularSubTotal = 0;
       for (const id in cart) {
-        const item = cart[id]; totalAmount += item.subtotal;
-        rowsHTML += `<tr><td>${item.name}</td><td>₹${item.price.toFixed(2)}</td><td style="text-align: center; font-weight: 800;">${item.quantity}</td><td>₹${item.subtotal.toFixed(2)}</td><td style="text-align: right;"><button class="btn-delete-row" onclick="window.removeProductFromCart('${id}')">✕</button></td></tr>`;
+        const item = cart[id]; 
+        const lineTotal = item.basePrice * item.quantity;
+        regularSubTotal += lineTotal;
+        rowsHTML += `<tr><td>${item.name}</td><td>₹${item.basePrice.toFixed(2)}</td><td style="text-align: center; font-weight: 800;">${item.quantity}</td><td>₹${lineTotal.toFixed(2)}</td><td style="text-align: right;"><button class="btn-delete-row" onclick="window.removeProductFromCart('${id}')">✕</button></td></tr>`;
       }
-      tbody.innerHTML = rowsHTML; document.getElementById('bill-subtotal').innerText = `₹${totalAmount.toFixed(2)}`;
-      const finalAmount = totalAmount - approvedDiscount; document.getElementById('bill-total').innerText = `₹${Math.max(0, finalAmount).toFixed(2)}`;
+      
+      tbody.innerHTML = rowsHTML; 
+      document.getElementById('bill-subtotal').innerText = `₹${regularSubTotal.toFixed(2)}`;
+      
+      // Auto Promo Display
+      if(autoAppliedDiscount > 0) {
+          document.getElementById('auto-promo-row').style.display = 'flex';
+          document.getElementById('auto-promo-display').innerText = `-₹${autoAppliedDiscount.toFixed(2)}`;
+      } else {
+          document.getElementById('auto-promo-row').style.display = 'none';
+      }
+
+      const finalAmount = regularSubTotal - autoAppliedDiscount - approvedDiscount; 
+      document.getElementById('bill-total').innerText = `₹${Math.max(0, finalAmount).toFixed(2)}`;
       checkoutBtn.disabled = false;
     }
 
@@ -670,8 +749,7 @@
       const checkoutBtn = document.getElementById('btn-generate-bill'); checkoutBtn.disabled = true; checkoutBtn.innerHTML = "Processing Securely...";
       
       let finalTotal = parseFloat(document.getElementById('bill-total').innerText.replace('₹', '')); 
-      let totalPhysicalItemsInBill = 0;
-      for (const key in cart) { totalPhysicalItemsInBill += cart[key].quantity; }
+      let totalPhysicalItemsInBill = scannedQRCodes.length;
 
       try {
         if (scannedQRCodes.length > 0) {
@@ -682,31 +760,38 @@
             const { error: updateError } = await supabase.from('inventory_pieces').update({ status: 'Sold', sold_by_staff: selectedStaff, sold_at: new Date().toISOString() }).in('id', scannedQRCodes);
             if(updateError) throw updateError;
         }
+        
+        // Sum total discount given (auto + manual)
+        const totalDiscountGiven = autoAppliedDiscount + approvedDiscount;
 
         const { data: newBillData, error: billError } = await supabase.from('bills').insert({
-            branch: currentBranch, staff_name: selectedStaff, items: cart, total_pieces: totalPhysicalItemsInBill, discount_applied: approvedDiscount, total_paid: Math.max(0, finalTotal)
+            branch: currentBranch, staff_name: selectedStaff, items: cart, total_pieces: totalPhysicalItemsInBill, discount_applied: totalDiscountGiven, total_paid: Math.max(0, finalTotal)
         }).select('id').single();
         if(billError) throw billError;
 
+        // Render Printable Receipt
         document.getElementById('rcpt-branch').innerText = currentBranch; document.getElementById('rcpt-staff').innerText = `Cashier: ${selectedStaff}`; document.getElementById('rcpt-date').innerText = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
         
         let rcptRows = ""; 
         for (const id in cart) { 
             const rcptItem = cart[id]; 
             const cleanName = rcptItem.name.replace(/<[^>]*>?/gm, ''); 
-            rcptRows += `<tr><td>${cleanName}<br><small>@ ₹${rcptItem.price}</small></td><td style="text-align: center;">${rcptItem.quantity}</td><td style="text-align: right;">₹${rcptItem.subtotal.toFixed(2)}</td></tr>`; 
+            const lineTotal = rcptItem.basePrice * rcptItem.quantity;
+            rcptRows += `<tr><td>${cleanName}<br><small>@ ₹${rcptItem.basePrice}</small></td><td style="text-align: center;">${rcptItem.quantity}</td><td style="text-align: right;">₹${lineTotal.toFixed(2)}</td></tr>`; 
         }
         
         document.getElementById('rcpt-items').innerHTML = rcptRows; document.getElementById('rcpt-total-pieces').innerText = totalPhysicalItemsInBill;
         
+        if(autoAppliedDiscount > 0) { document.getElementById('rcpt-promo-discount-row').style.display = 'flex'; document.getElementById('rcpt-promo').innerText = `-₹${autoAppliedDiscount.toFixed(2)}`; } else { document.getElementById('rcpt-promo-discount-row').style.display = 'none'; }
         if(approvedDiscount > 0) { document.getElementById('rcpt-discount-row').style.display = 'flex'; document.getElementById('rcpt-discount').innerText = `-₹${approvedDiscount.toFixed(2)}`; } else { document.getElementById('rcpt-discount-row').style.display = 'none'; }
+        
         document.getElementById('rcpt-total-amount').innerText = `₹${Math.max(0, finalTotal).toFixed(2)}`;
         document.getElementById('rcpt-id-tag').innerText = `Bill Ref: ${newBillData.id.split('-')[0].toUpperCase()}`;
 
         window.print(); displayToast("Invoice Generated Successfully!", "success");
         
         // Reset Logic
-        cart = {}; scannedQRCodes = []; approvedDiscount = 0; 
+        cart = {}; scannedQRCodes = []; approvedDiscount = 0; autoAppliedDiscount = 0;
         document.getElementById('discount-row').style.display = 'none'; document.getElementById('discount-input').value = ""; 
         document.getElementById('btn-request-discount').innerText = "Request Auth"; 
         updateCartUI(); 
