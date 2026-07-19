@@ -293,6 +293,7 @@
     // Discount Tracking
     let approvedDiscount = 0;
     let autoAppliedDiscount = 0;
+    let pendingFreeAlerts = []; // Global variable to store alerts
     
     let activeDiscountChannel = null;
     let fallbackPollInterval = null; 
@@ -540,22 +541,21 @@
       }
     }
 
-    // --- SMART OFFERS EVALUATION ENGINE ---
+    // --- SMART OFFERS EVALUATION ENGINE (UPDATED FOR QR INVENTORY) ---
     function recalculateOffersAndCart() {
-        // 1. Remove all old virtual free gifts
-        Object.keys(cart).forEach(k => { if(cart[k].isVirtualOffer) delete cart[k]; });
         autoAppliedDiscount = 0;
+        pendingFreeAlerts = [];
         
-        // 2. Map current cart quantities for fast checking
+        // 1. Calculate quantities of physically scanned items only
         let currentCartQtys = {};
         for(let k in cart) {
              currentCartQtys[k] = cart[k].quantity;
         }
 
-        // 3. Loop through active offers and calculate applications
+        // 2. Loop through active offers and calculate applications
         masterOffers.forEach(offer => {
             let targets = offer.target_items || []; 
-            if(!targets.length && offer.target_item_sku) targets = [{sku: offer.target_item_sku, qty: 1}]; // Fallback for old single data
+            if(!targets.length && offer.target_item_sku) targets = [{sku: offer.target_item_sku, qty: 1}];
             
             if(targets.length === 0) return;
 
@@ -573,31 +573,9 @@
                 }
             }
 
-            // Apply the offer `maxApplies` times
             if(maxApplies > 0) {
                 
-                if(offer.offer_type === 'bogo' || offer.offer_type === 'combo') {
-                     let freebies = offer.free_items || [];
-                     if(!freebies.length && offer.free_item_sku) freebies = [{sku: offer.free_item_sku, qty: 1}];
-                     
-                     freebies.forEach(f => {
-                          const freeData = masterItems.find(i => i.sku === f.sku);
-                          const freeName = freeData ? freeData.name : "Free Promo Item";
-                          const vId = 'OFFER-FREE-' + f.sku;
-                          
-                          if(cart[vId]) {
-                               cart[vId].quantity += (f.qty * maxApplies);
-                          } else {
-                               cart[vId] = {
-                                    name: freeName + ' <span class="badge-promo">FREE</span>',
-                                    basePrice: 0, costPrice: 0,
-                                    quantity: (f.qty * maxApplies),
-                                    isVirtualOffer: true
-                               };
-                          }
-                     });
-                } 
-                
+                // A. Discount Combo Logic (Price Drop on Target Bundle)
                 if(offer.offer_type === 'discount' || offer.offer_type === 'combo') {
                      let newPrice = parseFloat(offer.new_price || 0);
                      let discountPerBundle = bundleRegularValue - newPrice;
@@ -605,6 +583,34 @@
                           autoAppliedDiscount += (discountPerBundle * maxApplies);
                      }
                 }
+
+                // B. BOGO / Free Item Logic (Must physically scan the free item)
+                if(offer.offer_type === 'bogo' || offer.offer_type === 'combo') {
+                     let freebies = offer.free_items || [];
+                     if(!freebies.length && offer.free_item_sku) freebies = [{sku: offer.free_item_sku, qty: 1}];
+                     
+                     freebies.forEach(f => {
+                          const freeSku = f.sku;
+                          let scannedFreeQty = currentCartQtys[freeSku] || 0;
+                          let eligibleFreeQty = f.qty * maxApplies;
+                          
+                          // Kitne free items legally scan ho chuke hain?
+                          let qtyToMakeFree = Math.min(scannedFreeQty, eligibleFreeQty);
+                          
+                          if(qtyToMakeFree > 0) {
+                               // Unhe free banane ke liye unka price discount me add kar do
+                               let freeItemData = masterItems.find(i => i.sku === freeSku);
+                               let pricePerItem = freeItemData ? parseFloat(freeItemData.selling_price || 0) : 0;
+                               autoAppliedDiscount += (qtyToMakeFree * pricePerItem);
+                          }
+                          
+                          // Agar cashier ne abhi tak free item ka QR scan nahi kiya hai, toh usko yaad dilao
+                          if(scannedFreeQty < eligibleFreeQty) {
+                               let missingQty = eligibleFreeQty - scannedFreeQty;
+                               pendingFreeAlerts.push(`🎁 Offer Active: Scan ${missingQty}x [${freeSku}] to give it for FREE!`);
+                          }
+                     });
+                } 
             }
         });
         
@@ -684,13 +690,11 @@
     window.removeProductFromCart = function(productId) {
       if (!cart[productId]) return;
       
-      if (!cart[productId].isVirtualOffer) {
-          // Find and pop the latest scanned matching QR to preserve physics logic
-          for(let i = scannedQRCodes.length - 1; i >= 0; i--) {
-              if(scannedQRCodes[i].startsWith(productId)) {
-                  scannedQRCodes.splice(i, 1);
-                  break;
-              }
+      // Find and pop the latest scanned matching QR to preserve physics logic
+      for(let i = scannedQRCodes.length - 1; i >= 0; i--) {
+          if(scannedQRCodes[i].startsWith(productId)) {
+              scannedQRCodes.splice(i, 1);
+              break;
           }
       }
       
@@ -714,6 +718,12 @@
       }
 
       let rowsHTML = ""; let regularSubTotal = 0;
+      
+      // Agar free items scan karna baaki hai, toh top par alert dikhao
+      if(pendingFreeAlerts.length > 0) {
+          rowsHTML += `<tr><td colspan="5" style="text-align:center; color:var(--primary); font-weight:700; background:var(--primary-alpha); padding:12px; border-radius:8px;">${pendingFreeAlerts.join('<br>')}</td></tr>`;
+      }
+
       for (const id in cart) {
         const item = cart[id]; 
         const lineTotal = item.basePrice * item.quantity;
@@ -734,6 +744,7 @@
 
       const finalAmount = regularSubTotal - autoAppliedDiscount - approvedDiscount; 
       document.getElementById('bill-total').innerText = `₹${Math.max(0, finalAmount).toFixed(2)}`;
+      
       checkoutBtn.disabled = false;
     }
 
@@ -794,7 +805,7 @@
         window.print(); displayToast("Invoice Generated Successfully!", "success");
         
         // Reset Logic
-        cart = {}; scannedQRCodes = []; approvedDiscount = 0; autoAppliedDiscount = 0;
+        cart = {}; scannedQRCodes = []; approvedDiscount = 0; autoAppliedDiscount = 0; pendingFreeAlerts = [];
         document.getElementById('discount-row').style.display = 'none'; document.getElementById('discount-input').value = ""; 
         document.getElementById('btn-request-discount').innerText = "Request Auth"; 
         updateCartUI(); 
