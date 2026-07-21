@@ -110,8 +110,10 @@
     #toast { visibility: hidden; min-width: 300px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px 24px; position: fixed; z-index: 10000; bottom: 40px; left: 50%; transform: translate(-50%, 20px); font-size: 15px; font-weight: 600; color: var(--text-main); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.3s, transform 0.3s, visibility 0.3s; }
     #toast.show { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
     
-    /* Promotional Badges for Offers */
     .badge-promo { background: var(--primary-alpha); color: var(--primary); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px; display: inline-block; vertical-align: middle;}
+
+    /* Customer Form Elements */
+    .cust-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 
     /* PROFESSIONAL RECEIPT PRINTER */
     #print-receipt { display: none; }
@@ -230,6 +232,20 @@
           <span>Final Total:</span><span id="bill-total">₹0.00</span>
         </div>
 
+        <!-- NEW: Customer Details & Payment Mode -->
+        <div style="margin-bottom: 20px; border-top: 1px solid var(--card-border); padding-top: 20px;">
+            <p style="font-size: 12px; color: var(--text-soft); margin-bottom: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Customer & Payment Details</p>
+            <div class="cust-form-grid">
+                <input type="text" id="cust-name" class="input-field" placeholder="Customer Name (Optional)" style="margin-bottom: 0;">
+                <input type="tel" id="cust-mob" class="input-field" placeholder="Mobile Number (Optional)" style="margin-bottom: 0;">
+            </div>
+            <select id="payment-mode" class="input-field">
+                <option value="Cash" selected>Cash Payment</option>
+                <option value="UPI">UPI / QR Payment</option>
+                <option value="Card">Credit / Debit Card</option>
+            </select>
+        </div>
+
         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
           <input type="number" id="discount-input" class="input-field" placeholder="Request Additional (₹)" style="margin-bottom: 0;" />
           <button id="btn-request-discount" class="btn-secondary" style="white-space: nowrap;">Request Auth</button>
@@ -254,7 +270,14 @@
 
   <!-- Hidden Printable Thermal Receipt Container -->
   <div id="print-receipt">
-    <div class="rcpt-header"><h2>RJ Mobile</h2><p id="rcpt-branch"></p><p id="rcpt-staff"></p><p id="rcpt-date"></p></div>
+    <div class="rcpt-header">
+        <h2>RJ Mobile</h2>
+        <p id="rcpt-branch"></p>
+        <p id="rcpt-staff"></p>
+        <p id="rcpt-date"></p>
+        <p id="rcpt-cust" style="margin-top: 4px; font-weight: normal;"></p>
+        <p id="rcpt-paymode" style="margin-top: 2px;"></p>
+    </div>
     <div class="rcpt-divider"></div>
     <table class="rcpt-table">
       <thead><tr><th>Item</th><th style="text-align: center;">Qty</th><th style="text-align: right;">Total</th></tr></thead>
@@ -293,7 +316,7 @@
     // Discount Tracking
     let approvedDiscount = 0;
     let autoAppliedDiscount = 0;
-    let pendingFreeAlerts = []; // Global variable to store alerts
+    let pendingFreeAlerts = []; 
     
     let activeDiscountChannel = null;
     let fallbackPollInterval = null; 
@@ -487,7 +510,13 @@
         const { data: pieceData, error } = await supabase.from('inventory_pieces').select('*').eq('id', decodedText).single();
 
         if (error || !pieceData) { triggerHardwareFeedback(true); displayToast("Invalid QR: Barcode not found.", "error"); return; }
-        if (pieceData.status === "Sold") { triggerHardwareFeedback(true); displayToast("Rejected: This piece was already sold!", "error"); return; }
+        
+        // Prevent selling if not Available
+        if (pieceData.status !== "Available" && currentAppMode === 'billing') { 
+            triggerHardwareFeedback(true); 
+            displayToast(`Rejected: This piece is marked as '${pieceData.status}'!`, "error"); 
+            return; 
+        }
 
         if (currentAppMode === 'audit') {
             const todayStart = new Date(); todayStart.setHours(0,0,0,0);
@@ -507,7 +536,7 @@
             displayToast(`${pieceData.product_name} audited!`, "success");
 
         } else {
-            // BILLING MODE - Add Regular Item First
+            // BILLING MODE
             const productId = pieceData.product_id;
             const productName = pieceData.product_name || "Unknown Accessory";
             let productPrice = parseFloat(pieceData.price || 0);
@@ -546,13 +575,9 @@
         autoAppliedDiscount = 0;
         pendingFreeAlerts = [];
         
-        // 1. Calculate quantities of physically scanned items only
         let currentCartQtys = {};
-        for(let k in cart) {
-             currentCartQtys[k] = cart[k].quantity;
-        }
+        for(let k in cart) { currentCartQtys[k] = cart[k].quantity; }
 
-        // 2. Loop through active offers and calculate applications
         masterOffers.forEach(offer => {
             let targets = offer.target_items || []; 
             if(!targets.length && offer.target_item_sku) targets = [{sku: offer.target_item_sku, qty: 1}];
@@ -584,7 +609,7 @@
                      }
                 }
 
-                // B. BOGO / Free Item Logic (Must physically scan the free item)
+                // B. Gifts / Free Item Logic (Must physically scan the free item)
                 if(offer.offer_type === 'bogo' || offer.offer_type === 'combo') {
                      let freebies = offer.free_items || [];
                      if(!freebies.length && offer.free_item_sku) freebies = [{sku: offer.free_item_sku, qty: 1}];
@@ -594,17 +619,15 @@
                           let scannedFreeQty = currentCartQtys[freeSku] || 0;
                           let eligibleFreeQty = f.qty * maxApplies;
                           
-                          // Kitne free items legally scan ho chuke hain?
                           let qtyToMakeFree = Math.min(scannedFreeQty, eligibleFreeQty);
                           
                           if(qtyToMakeFree > 0) {
-                               // Unhe free banane ke liye unka price discount me add kar do
                                let freeItemData = masterItems.find(i => i.sku === freeSku);
                                let pricePerItem = freeItemData ? parseFloat(freeItemData.selling_price || 0) : 0;
                                autoAppliedDiscount += (qtyToMakeFree * pricePerItem);
                           }
                           
-                          // Agar cashier ne abhi tak free item ka QR scan nahi kiya hai, toh usko yaad dilao
+                          // Alert cashier to scan missing free items
                           if(scannedFreeQty < eligibleFreeQty) {
                                let missingQty = eligibleFreeQty - scannedFreeQty;
                                pendingFreeAlerts.push(`🎁 Offer Active: Scan ${missingQty}x [${freeSku}] to give it for FREE!`);
@@ -621,7 +644,8 @@
     // --- DISCOUNT REQUEST ENGINE ---
     function processDiscountUpdate(updatedData, btn) {
         if (updatedData.status === "Approved") {
-            approvedDiscount = parseFloat(updatedData.requested_discount);
+            // Check if admin updated the amount during approval
+            approvedDiscount = updatedData.approved_discount != null ? parseFloat(updatedData.approved_discount) : parseFloat(updatedData.requested_discount);
             document.getElementById('discount-row').style.display = 'flex';
             document.getElementById('approved-discount-display').innerText = `-₹${approvedDiscount.toFixed(2)}`;
             displayToast("Discount Approved!", "success");
@@ -678,7 +702,7 @@
           
         if (fallbackPollInterval) clearInterval(fallbackPollInterval);
         fallbackPollInterval = setInterval(async () => {
-            const { data: pollData } = await supabase.from('discount_requests').select('status, requested_discount').eq('id', data.id).single();
+            const { data: pollData } = await supabase.from('discount_requests').select('status, requested_discount, approved_discount').eq('id', data.id).single();
             if (pollData && pollData.status !== "Pending") {
                 processDiscountUpdate(pollData, btn);
             }
@@ -690,7 +714,6 @@
     window.removeProductFromCart = function(productId) {
       if (!cart[productId]) return;
       
-      // Find and pop the latest scanned matching QR to preserve physics logic
       for(let i = scannedQRCodes.length - 1; i >= 0; i--) {
           if(scannedQRCodes[i].startsWith(productId)) {
               scannedQRCodes.splice(i, 1);
@@ -702,7 +725,6 @@
           cart[productId].quantity -= 1;
       } else { delete cart[productId]; }
       
-      // Auto-recalculate offers to catch any broken targets
       recalculateOffersAndCart(); 
       displayToast("Item removed.", "primary");
     };
@@ -719,7 +741,6 @@
 
       let rowsHTML = ""; let regularSubTotal = 0;
       
-      // Agar free items scan karna baaki hai, toh top par alert dikhao
       if(pendingFreeAlerts.length > 0) {
           rowsHTML += `<tr><td colspan="5" style="text-align:center; color:var(--primary); font-weight:700; background:var(--primary-alpha); padding:12px; border-radius:8px;">${pendingFreeAlerts.join('<br>')}</td></tr>`;
       }
@@ -734,7 +755,6 @@
       tbody.innerHTML = rowsHTML; 
       document.getElementById('bill-subtotal').innerText = `₹${regularSubTotal.toFixed(2)}`;
       
-      // Auto Promo Display
       if(autoAppliedDiscount > 0) {
           document.getElementById('auto-promo-row').style.display = 'flex';
           document.getElementById('auto-promo-display').innerText = `-₹${autoAppliedDiscount.toFixed(2)}`;
@@ -760,6 +780,10 @@
           return; 
       }
 
+      const custName = document.getElementById('cust-name').value.trim();
+      const custMob = document.getElementById('cust-mob').value.trim();
+      const payMode = document.getElementById('payment-mode').value;
+
       const checkoutBtn = document.getElementById('btn-generate-bill'); checkoutBtn.disabled = true; checkoutBtn.innerHTML = "Processing Securely...";
       
       let finalTotal = parseFloat(document.getElementById('bill-total').innerText.replace('₹', '')); 
@@ -769,22 +793,45 @@
         if (scannedQRCodes.length > 0) {
             const { data: verificationData, error: verifyError } = await supabase.from('inventory_pieces').select('id, status').in('id', scannedQRCodes);
             if(verifyError) throw new Error("Could not verify items.");
-            for(const piece of verificationData) { if(piece.status === 'Sold') throw new Error(`Piece ${piece.id} was already scanned by another branch!`); }
+            for(const piece of verificationData) { if(piece.status !== 'Available') throw new Error(`Piece ${piece.id} is marked as ${piece.status}!`); }
 
             const { error: updateError } = await supabase.from('inventory_pieces').update({ status: 'Sold', sold_by_staff: selectedStaff, sold_at: new Date().toISOString() }).in('id', scannedQRCodes);
             if(updateError) throw updateError;
         }
         
-        // Sum total discount given (auto + manual)
         const totalDiscountGiven = autoAppliedDiscount + approvedDiscount;
 
+        // Group piece IDs by product to save in the bill object (helpful for refunds later)
+        let cartWithIds = JSON.parse(JSON.stringify(cart));
+        for(let sku in cartWithIds) {
+             cartWithIds[sku].piece_ids = scannedQRCodes.filter(id => id.startsWith(sku));
+        }
+
         const { data: newBillData, error: billError } = await supabase.from('bills').insert({
-            branch: currentBranch, staff_name: selectedStaff, items: cart, total_pieces: totalPhysicalItemsInBill, discount_applied: totalDiscountGiven, total_paid: Math.max(0, finalTotal)
+            branch: currentBranch, 
+            staff_name: selectedStaff, 
+            items: cartWithIds, 
+            total_pieces: totalPhysicalItemsInBill, 
+            discount_applied: totalDiscountGiven, 
+            total_paid: Math.max(0, finalTotal),
+            customer_name: custName,         
+            customer_mobile: custMob,
+            payment_mode: payMode
         }).select('id').single();
+        
         if(billError) throw billError;
 
         // Render Printable Receipt
-        document.getElementById('rcpt-branch').innerText = currentBranch; document.getElementById('rcpt-staff').innerText = `Cashier: ${selectedStaff}`; document.getElementById('rcpt-date').innerText = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+        document.getElementById('rcpt-branch').innerText = currentBranch; 
+        document.getElementById('rcpt-staff').innerText = `Cashier: ${selectedStaff}`; 
+        document.getElementById('rcpt-date').innerText = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+        
+        if(custName || custMob) {
+             document.getElementById('rcpt-cust').innerText = `Customer: ${custName} ${custMob ? `(${custMob})` : ''}`;
+        } else {
+             document.getElementById('rcpt-cust').innerText = "";
+        }
+        document.getElementById('rcpt-paymode').innerText = `Payment Mode: ${payMode}`;
         
         let rcptRows = ""; 
         for (const id in cart) { 
@@ -808,9 +855,13 @@
         cart = {}; scannedQRCodes = []; approvedDiscount = 0; autoAppliedDiscount = 0; pendingFreeAlerts = [];
         document.getElementById('discount-row').style.display = 'none'; document.getElementById('discount-input').value = ""; 
         document.getElementById('btn-request-discount').innerText = "Request Auth"; 
+        
+        document.getElementById('cust-name').value = "";
+        document.getElementById('cust-mob').value = "";
+        document.getElementById('payment-mode').value = "Cash";
+
         updateCartUI(); 
         
-        // Reset the custom dropdown
         hiddenSelect.value = "";
         selectTrigger.innerHTML = `Tap to select your name... <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`;
         selectTrigger.classList.remove('selected');
